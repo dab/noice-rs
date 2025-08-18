@@ -449,8 +449,18 @@ fn render(state: &State) -> io::Result<()> {
             };
             
             let name = format!("{}{}", entry.name, suffix);
-            let truncated = if name.len() > state.term_width - 10 {
-                format!("{}...", &name[..state.term_width - 13])
+            let max_width = state.term_width.saturating_sub(10);
+            let truncated = if name.chars().count() > max_width {
+                let mut truncated = String::new();
+                let mut char_count = 0;
+                for ch in name.chars() {
+                    if char_count >= max_width - 3 {
+                        break;
+                    }
+                    truncated.push(ch);
+                    char_count += 1;
+                }
+                format!("{}...", truncated)
             } else {
                 name
             };

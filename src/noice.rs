@@ -50,6 +50,7 @@ pub struct State {
     last_dir: Option<PathBuf>,
     pending_key: Option<u8>,
     filter_input: Option<String>,
+    longest_entry_width: usize,  // Track longest entry name+suffix for column alignment
 }
 
 #[derive(Clone, Copy)]
@@ -217,6 +218,7 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
         last_dir: None,
         pending_key: None,
         filter_input: None,
+        longest_entry_width: 0,
     };
     
     update_terminal_size(&mut state)?;
@@ -504,6 +506,23 @@ fn load_directory(state: &mut State) -> io::Result<()> {
     
     state.entries = entries;
     
+    // Calculate longest entry width for column alignment (like original C code)
+    state.longest_entry_width = state.entries.iter()
+        .map(|entry| {
+            let suffix = if entry.is_dir {
+                "/"
+            } else if entry.is_link {
+                "@"  
+            } else if entry.is_exec {
+                "*"
+            } else {
+                ""
+            };
+            entry.name.chars().count() + suffix.chars().count()
+        })
+        .max()
+        .unwrap_or(0);
+    
     if state.cursor >= state.entries.len() {
         state.cursor = state.entries.len().saturating_sub(1);
     }
@@ -604,32 +623,22 @@ fn render(state: &State) -> io::Result<()> {
                 ""
             };
             
+            let name = format!("{}{}", entry.name, suffix);
+            let name_width = name.chars().count();
+            
+            // Pad name to longest entry width for column alignment (like original)
+            let padding_needed = state.longest_entry_width.saturating_sub(name_width);
+            let name_padding = " ".repeat(padding_needed);
+            
             let size_str = if state.show_size && !entry.is_dir {
                 format!(" {:>8}", format_size(entry.size))
             } else if state.show_size {
-                "         ".to_string() // 9 spaces for alignment
+                "         ".to_string() // 9 spaces for alignment with size column
             } else {
                 String::new()
             };
             
-            let name = format!("{}{}", entry.name, suffix);
-            let available_width = state.term_width.saturating_sub(10 + size_str.len());
-            let truncated = if name.chars().count() > available_width {
-                let mut truncated = String::new();
-                let mut char_count = 0;
-                for ch in name.chars() {
-                    if char_count >= available_width.saturating_sub(3) {
-                        break;
-                    }
-                    truncated.push(ch);
-                    char_count += 1;
-                }
-                format!("{}...", truncated)
-            } else {
-                name
-            };
-            
-            println!(" {}{}{}{}{}", prefix, color_start, truncated, size_str, color_end);
+            println!(" {}{}{}{}{}{}", prefix, color_start, name, name_padding, color_end, size_str);
         }
     }
     

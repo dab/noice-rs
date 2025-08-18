@@ -2,7 +2,6 @@ pub const SHOW_HIDDEN: bool = false;
 pub const DIRS_FIRST: bool = true;
 pub const USE_COLOR: bool = true;
 pub const SHOW_SIZE: bool = false;
-pub const TILDE_HOME: bool = false;
 pub const VERSION_SORT: bool = true;
 pub const CURSOR: &str = " > ";
 pub const NO_CURSOR: &str = "   ";
@@ -76,7 +75,11 @@ pub const KEYBINDS: &[(u8, Action)] = &[
     (b's', Action::SortByName),
     (b'S', Action::ToggleSize),
     (b't', Action::SortByTime),
+    (b'[', Action::PageUp),
+    (b']', Action::PageDown),
     (b'v', Action::ToggleVersionSort),
+    (b'U', Action::UnmarkAll), // Uppercase U for unmark all
+    (5, Action::SortBySize),   // Ctrl-E for size sort
     (b'm', Action::MoveFiles),
     (b'L', Action::Link),
     (b'c', Action::ChangeDir),

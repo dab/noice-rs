@@ -225,6 +225,12 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
     };
     
     update_terminal_size(&mut state)?;
+    
+    // Load session state if save_file provided
+    if let Some(save_file) = state.save_file.clone() {
+        load_session(&mut state, &save_file);
+    }
+    
     load_directory(&mut state)?;
     
     let mut watcher = FileWatcher::new(&state.dir).ok();
@@ -260,6 +266,11 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
             }
             None => continue,
         }
+    }
+    
+    // Save session state before exit
+    if let Some(ref save_file) = state.save_file {
+        save_session(&state, save_file);
     }
     
     Ok(())
@@ -309,6 +320,40 @@ fn update_terminal_size(state: &mut State) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn load_session(state: &mut State, save_file: &str) {
+    if let Ok(content) = fs::read_to_string(save_file) {
+        for line in content.lines() {
+            if let Some((key, value)) = line.split_once('=') {
+                match key {
+                    "last_dir" => {
+                        let path = PathBuf::from(value);
+                        if path.exists() && path.is_dir() {
+                            state.last_dir = Some(path);
+                        }
+                    }
+                    "current_dir" => {
+                        let path = PathBuf::from(value);
+                        if path.exists() && path.is_dir() {
+                            state.dir = path;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+fn save_session(state: &State, save_file: &str) {
+    let mut content = String::new();
+    content.push_str(&format!("current_dir={}\n", state.dir.display()));
+    if let Some(ref last_dir) = state.last_dir {
+        content.push_str(&format!("last_dir={}\n", last_dir.display()));
+    }
+    
+    let _ = fs::write(save_file, content);
 }
 
 fn format_size(size: u64) -> String {
@@ -480,14 +525,25 @@ fn adjust_view_offset(state: &mut State) {
 fn render(state: &State) -> io::Result<()> {
     print!("\x1b[H\x1b[2J"); // Clear screen
     
-    // Header
-    let dir_display = if state.dir.to_string_lossy() == "/" {
+    // Header - with tilde_home support
+    let dir_display = if state.tilde_home {
+        if let Ok(home) = env::var("HOME") {
+            let dir_str = state.dir.to_string_lossy();
+            if dir_str.starts_with(&home) {
+                format!("~{}", &dir_str[home.len()..])
+            } else {
+                dir_str.to_string()
+            }
+        } else {
+            state.dir.display().to_string()
+        }
+    } else if state.dir.to_string_lossy() == "/" {
         "/".to_string()
     } else {
         state.dir.display().to_string()
     };
     
-    if USE_COLOR {
+    if state.use_color {
         println!("\x1b[1m{}\x1b[0m", dir_display);
     } else {
         println!("{}", dir_display);
@@ -1097,6 +1153,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
             state.yanked.clear();
             state.message = Some("Cleared yanked items".to_string());
         }
+        
         
         Action::ToggleSize => {
             state.show_size = !state.show_size;

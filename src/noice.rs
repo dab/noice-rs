@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use std::cmp::Ordering;
 use std::process::{Command, Stdio};
 use std::env;
+use std::collections::HashSet;
 use libc::{termios, tcgetattr, tcsetattr, TCSANOW, ECHO, ICANON, VMIN, VTIME};
 use std::mem;
 
@@ -493,13 +494,14 @@ fn load_directory(state: &mut State) -> io::Result<()> {
         }
     });
     
-    let old_marked: Vec<PathBuf> = state.entries.iter()
+    // Optimize: Use references to avoid cloning paths for marked preservation
+    let old_marked: HashSet<&Path> = state.entries.iter()
         .filter(|e| e.marked)
-        .map(|e| e.path.clone())
+        .map(|e| e.path.as_path())
         .collect();
     
     for entry in &mut entries {
-        if old_marked.contains(&entry.path) {
+        if old_marked.contains(entry.path.as_path()) {
             entry.marked = true;
         }
     }

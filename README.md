@@ -6,14 +6,20 @@ A suckless-aligned file browser written in Rust. Minimal dependencies, compile-t
 
 - **Minimal Dependencies**: Only uses `libc` for terminal control
 - **Compile-Time Configuration**: Edit `config.rs` and recompile to customize
-- **Fast & Lightweight**: < 1000 lines of code, instant startup
+- **Fast & Lightweight**: ~1300 lines of code, instant startup
 - **Platform Support**: Native file watching on Linux (inotify) and macOS (kqueue)
 - **Vi-style Keybindings**: Navigate with h/j/k/l or arrow keys
+- **Two-Key Combos**: Support for `gg`, `DD`, `nf`, `nd`, `g<key>`, `'<key>`
 - **File Operations**: Copy, move, delete, rename files and directories
+- **File Creation**: Create files and directories with nested path support
 - **Marking System**: Mark multiple files for bulk operations
-- **Filtering**: Filter directory contents with `/`
-- **Sorting**: Sort by name, size, or modification time
-- **Directory Jumps**: Quick navigation to common directories
+- **Filtering**: Filter directory contents with `/` (search)
+- **Multiple Sorting**: Sort by name, size, time, or version number
+- **Directory Jumps**: Quick navigation with customizable shortcuts
+- **External Programs**: Edit files, play media, run commands via environment variables
+- **File Size Display**: Toggle human-readable file size display
+- **Session History**: Remember last directory for quick switching
+- **Full Feature Parity**: All original noice functionality implemented
 
 ## Building
 
@@ -61,57 +67,79 @@ noice ~
 
 ### Navigation
 - `j` / `↓` - Move down
-- `k` / `↑` - Move up
+- `k` / `↑` - Move up  
 - `l` / `→` / `Enter` - Enter directory / open file
 - `h` / `←` / `Backspace` - Go to parent directory
-- `g` / `Home` - Go to first item
+- `gg` / `Home` - Go to first item
 - `G` / `End` - Go to last item
-- `[` - Page up
-- `]` - Page down
+- `Ctrl-U` - Half page up
+- `Ctrl-D` - Half page down
 
 ### File Operations
 - `Space` - Mark/unmark file
-- `u` - Unmark all
+- `u` - Un-yank (clear yanked list)
 - `y` - Yank (copy) marked files or current file
 - `m` - Mark files for moving
 - `p` - Paste yanked files
-- `D` - Delete marked files or current file
+- `DD` - Delete marked files or current file (double-D for safety)
 - `r` - Rename current file
-- `n` - Create new directory
+- `nf` - Create new file
+- `nd` - Create new directory
 - `L` - Create symbolic links
 
 ### View Options
-- `.` - Toggle hidden files
+- `.` / `Ctrl-H` - Toggle hidden files
 - `d` - Toggle directories first
-- `/` - Filter files
+- `/` - Filter files (search)
 - `s` - Sort by name
-- `S` - Sort by size
+- `S` - Toggle file size display
 - `t` - Sort by modification time
-- `R` - Reload directory
+- `v` - Toggle version number sorting
+- `Ctrl-L` / `R` - Force redraw/reload
 
-### Directory Jumps
-- `/` - Go to root
-- `~` - Go to home
-- `c` - Go to ~/.config
-- `d` - Go to ~/Downloads
-- `D` - Go to ~/Documents
-- `t` - Go to /tmp
+### Directory Operations
+- `c` - Change directory (interactive)
+- `g<key>` / `'<key>` - Jump to directory by key:
+  - `gr` / `'r` - Go to root (/)
+  - `ge` / `'e` - Go to /etc
+  - `gb` / `'b` - Go to /bin
+  - `gu` / `'u` - Go to /usr
+  - `gm` / `'m` - Go to /media
+  - `g.` / `'.` - Go to ~/.config
+- `''` - Jump to last directory (toggle)
+
+### External Programs
+- `e` - Edit current file with $EDITOR
+- `M` - Open with media player ($NOICEMP)
+- `!` - Open shell in current directory ($SHELL)
+- `z` - Run system monitor ($NOICETOP)
+- `?` - Show manual page ($NOICEMAN)
 
 ### Other
-- `!` - Open shell in current directory
 - `q` / `ESC` - Quit
 
 ## Configuration
 
 Edit `config.rs` to customize:
 
-- **Keybindings**: Map keys to actions
-- **File Associations**: Define which programs open which file types
-- **Directory Jumps**: Set up quick navigation shortcuts
+- **Keybindings**: Map keys to actions, including two-key combos
+- **File Associations**: Define which programs open which file types  
+- **Directory Jumps**: Set up quick navigation shortcuts for `g<key>` and `'<key>`
 - **Colors**: ANSI color codes for different file types
-- **Display Options**: Show/hide hidden files, directories first, etc.
+- **Display Options**: Show/hide hidden files, directories first, file sizes, etc.
+- **Sorting**: Default sort modes (name, size, time, version)
+- **External Programs**: Default commands for editor, media player, etc.
 
 After making changes, rebuild with `cargo build --release`.
+
+### Environment Variables
+
+The following environment variables can override defaults:
+- `EDITOR` - Text editor for `e` command (default: vi)
+- `SHELL` - Shell for `!` command (default: sh)
+- `NOICEMP` - Media player for `M` command (default: "mpv --shuffle")
+- `NOICETOP` - System monitor for `z` command (default: top)
+- `NOICEMAN` - Manual command for `?` (default: "man noice")
 
 ## Philosophy
 
@@ -125,10 +153,10 @@ This project follows the suckless philosophy:
 
 ## Performance
 
-- **Binary Size**: ~500KB stripped
+- **Binary Size**: ~380KB (unstripped release build)
 - **Memory Usage**: < 5MB for typical directories
 - **Startup Time**: < 10ms
-- **Lines of Code**: < 1000 lines
+- **Lines of Code**: ~1700 lines total (~1400 in core implementation)
 
 ## Platform Support
 

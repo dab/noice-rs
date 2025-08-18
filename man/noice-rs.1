@@ -1,0 +1,202 @@
+.TH NOICE-RS 1
+.SH SYNOPSIS
+.B noice-rs
+.RB [ \-ct ]
+.RB [ \-f
+.RB SAVE_FILE]
+.RB [ DIR ]
+.SH DESCRIPTION
+\fBnoice-rs\fR is a suckless-aligned file browser written in Rust. It provides a minimal, keyboard-driven interface for browsing files and directories with compile-time configuration following the suckless philosophy.
+.P
+\fBdir\fR defaults to the current working directory when not specified.
+Additionally, if \fBdir\fR is a relative path \fBnoice-rs\fR
+will not go back beyond the first component of the path using standard
+navigation binds.
+.SH OPTIONS
+.TP
+.B \-c
+Enables color mode (default: enabled).
+.TP
+.B \-t  
+Enables tilde home display in path.
+.TP
+.B \-f
+Use an alternate save file for session state.
+.SH KEYBINDINGS
+.TP
+\fIk\fR or \fI[Up]\fR
+Move to the previous entry.
+.TP
+\fIj\fR or \fI[Down]\fR
+Move to the next entry.
+.TP
+\fICtrl-U\fR
+Scroll up half a page.
+.TP
+\fICtrl-D\fR
+Scroll down half a page.
+.TP
+\fIgg\fR or \fI[Home]\fR
+Move to the first entry.
+.TP
+\fIG\fR or \fI[End]\fR
+Move to the last entry.
+.TP
+\fIl\fR, \fI[Right]\fR or \fI[Return]\fR
+Open current file or directory.
+.TP
+\fIh\fR, \fI[Left]\fR or \fI[Backspace]\fR
+Back up one directory.
+.TP
+\fI/\fR
+Change filter (search within directory).
+.TP
+\fIc\fR
+Change directory (interactive prompt).
+.TP
+\fIg<key>\fR or \fI'<key>\fR
+Jump to directory matching <key> in the config.
+.TP
+\fI''\fR
+Jump to last directory (toggle between current and previous).
+.TP
+\fInf\fR
+Make a new file, creates leading directories if needed.
+.TP
+\fInd\fR
+Make a new directory, creates leading directories if needed.
+.TP
+\fI[Space]\fR
+Toggle mark state on the current entry.
+.TP
+\fIy\fR
+Yank marked entries or the current if none are marked.
+.TP
+\fIu\fR
+Un-yank (clear) previously yanked entries.
+.TP
+\fIp\fR
+Copy yanked entries to the current directory.
+.TP
+\fIm\fR
+Move yanked entries to the current directory.
+.TP
+\fIL\fR
+Link yanked entries to the current directory.
+.TP
+\fIr\fR
+Rename current entry.
+.TP
+\fIDD\fR
+Delete marked entries or the current if none are marked.
+.TP
+\fIS\fR
+Toggle showing file size.
+.TP
+\fICtrl-H\fR or \fI.\fR
+Toggle showing hidden files (.dotfiles).
+.TP
+\fId\fR
+Toggle sorting by directories first.
+.TP
+\fIt\fR
+Toggle sorting by last modified time.
+.TP
+\fIv\fR
+Toggle sorting by version number.
+.TP
+\fIs\fR
+Sort by name.
+.TP
+\fICtrl-L\fR or \fIR\fR
+Force a redraw/reload.
+.TP
+\fI!\fR
+Spawn a shell in current directory.
+.TP
+\fIz\fR
+Spawn system monitor (top).
+.TP
+\fIe\fR
+Open selected entry with the EDITOR or vi.
+.TP
+\fIM\fR
+Open selected entry with media player.
+.TP
+\fI?\fR
+Show this manual page.
+.TP
+\fIq\fR or \fI[ESC]\fR
+Quit noice-rs.
+.SH FILTERS
+Filters allow you to use pattern matching to display only matched entries
+in the current directory view. This enables searching for a particular
+entry or entries. Filters do not stack, they are applied individually.
+To reset the filter, input an empty filter expression.
+.SH CONFIGURATION
+\fBnoice-rs\fR is configured by editing the config.rs file and recompiling the source code,
+following the suckless philosophy of compile-time configuration.
+.P
+The following environment variables are respected:
+.TP
+\fBEDITOR\fR
+Used by the \fIe\fR command to edit files (default: vi)
+.TP
+\fBSHELL\fR 
+Used by the \fI!\fR command to spawn shell (default: sh)
+.TP
+\fBNOICEMP\fR
+Used by the \fIM\fR command for media player (default: "mpv --shuffle")
+.TP
+\fBNOICETOP\fR
+Used by the \fIz\fR command for system monitor (default: top)
+.TP
+\fBNOICEMAN\fR
+Used by the \fI?\fR command for manual (default: "man noice")
+.SH DIRECTORY JUMPS
+The following directory jump shortcuts are available with \fIg<key>\fR or \fI'<key>\fR:
+.TP
+\fIr\fR
+Jump to root directory (/)
+.TP
+\fIe\fR  
+Jump to /etc
+.TP
+\fIb\fR
+Jump to /bin  
+.TP
+\fIu\fR
+Jump to /usr
+.TP
+\fIm\fR
+Jump to /media
+.TP
+\fI.\fR
+Jump to ~/.config
+.TP
+\fI'\fR
+Jump to last directory (toggle)
+.SH PERFORMANCE
+\fBnoice-rs\fR is designed for performance and minimal resource usage:
+.TP
+Binary size: ~500KB stripped
+.TP  
+Memory usage: <5MB for typical directories
+.TP
+Startup time: <10ms
+.TP
+Dependencies: Only libc for terminal control
+.SH PHILOSOPHY
+This implementation follows the suckless philosophy:
+- Simplicity over features
+- Compile-time configuration  
+- Minimal dependencies
+- User as developer (edit source and recompile)
+- No runtime configuration files
+- Clear, readable code
+.SH AUTHORS
+Rust implementation by Claude AI, based on the original noice by Lazaros Koromilas, Dimitris Papastamos, and Nathaniel Maia.
+.SH SEE ALSO
+.BR ls (1),
+.BR find (1),
+.BR tree (1)

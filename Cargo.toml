@@ -2,6 +2,20 @@
 name = "noice-rs"
 version = "0.1.0"
 edition = "2021"
+description = "A minimal suckless-style file browser for the terminal with vim-like keybindings"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dab/noice-rs"
+homepage = "https://github.com/dab/noice-rs"
+documentation = "https://docs.rs/noice-rs"
+keywords = ["file-browser", "terminal", "tui", "vim", "suckless"]
+categories = ["command-line-utilities", "filesystem"]
+authors = ["Dima Belitsky <dmitry.belitsky@gmail.com>"]
+readme = "README.md"
+exclude = [".claude/", ".serena/", "*.md", "man/"]
+
+[[bin]]
+name = "noice"
+path = "src/main.rs"
 
 [dependencies]
 libc = { version = "0.2", default-features = false }
@@ -15,3 +29,8 @@ lto = true          # Link-time optimization
 codegen-units = 1   # Single codegen unit
 strip = true        # Strip symbols
 panic = "abort"     # No unwinding
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

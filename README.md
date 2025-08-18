@@ -42,13 +42,77 @@ cargo build --release
 
 ## Installation
 
+### Method 1: Using the Installation Script (Recommended)
+
+The easiest way to install noice-rs is using the provided installation script:
+
 ```bash
-# Install to /usr/local/bin
+# Clone the repository
+git clone https://github.com/dab/noice-rs.git
+cd noice-rs
+
+# Run the interactive installer
+./install.sh
+
+# Or specify installation location directly:
+./install.sh --user    # Install to ~/.local/bin
+./install.sh --system  # Install to /usr/local/bin (requires sudo)
+```
+
+### Method 2: Using cargo install (For Rust Developers)
+
+If you have Rust installed, you can install directly from crates.io:
+
+```bash
+cargo install noice-rs
+```
+
+This will install the `noice` binary to your `~/.cargo/bin` directory.
+
+### Method 3: Pre-compiled Binaries
+
+Download pre-compiled binaries from the [GitHub Releases](https://github.com/dab/noice-rs/releases) page:
+
+1. Download the appropriate binary for your platform
+2. Extract and place in your PATH
+3. Make executable: `chmod +x noice`
+
+### Method 4: Manual Build and Install
+
+```bash
+# Clone the repository
+git clone https://github.com/dab/noice-rs.git
+cd noice-rs
+
+# Set up configuration (copies default config)
+cp src/config.def.rs config.rs
+
+# Build in release mode
+cargo build --release
+
+# Install to system directory
 sudo cp target/release/noice-rs /usr/local/bin/noice
 
 # Or install to user directory
+mkdir -p ~/.local/bin
 cp target/release/noice-rs ~/.local/bin/noice
 ```
+
+### Package Managers
+
+**Homebrew (macOS):**
+```bash
+# Coming soon
+brew install noice-rs
+```
+
+**Arch Linux (AUR):**
+```bash
+# Coming soon
+yay -S noice-rs
+```
+
+> **Note:** Make sure your installation directory is in your PATH. If using `~/.local/bin`, add `export PATH="$HOME/.local/bin:$PATH"` to your shell configuration file (.bashrc, .zshrc, etc.).
 
 ## Usage
 

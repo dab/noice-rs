@@ -1,6 +1,5 @@
 pub const SHOW_HIDDEN: bool = false;
 pub const DIRS_FIRST: bool = true;
-pub const USE_COLOR: bool = true;
 pub const SHOW_SIZE: bool = false;
 pub const VERSION_SORT: bool = true;
 pub const CURSOR: &str = " > ";

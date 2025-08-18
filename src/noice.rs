@@ -50,6 +50,7 @@ pub struct State {
     save_file: Option<String>,
     last_dir: Option<PathBuf>,
     pending_key: Option<u8>,
+    filter_input: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -222,6 +223,7 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
         save_file,
         last_dir: None,
         pending_key: None,
+        filter_input: None,
     };
     
     update_terminal_size(&mut state)?;
@@ -246,7 +248,13 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
         
         match get_key()? {
             Some(keys) => {
-                if let Some(pending) = state.pending_key {
+                if let Some(_) = state.filter_input {
+                    // Handle inline filtering input
+                    if handle_filter_input(&mut state, keys[0])? {
+                        load_directory(&mut state)?;
+                        watcher = FileWatcher::new(&state.dir).ok();
+                    }
+                } else if let Some(pending) = state.pending_key {
                     // Handle two-key combos
                     state.pending_key = None;
                     let combo_action = handle_two_key_combo(pending, keys.get(0).copied().unwrap_or(0));
@@ -625,9 +633,17 @@ fn render(state: &State) -> io::Result<()> {
         println!();
     }
     
-    // Footer / Message
-    if let Some(ref msg) = state.message {
-        if USE_COLOR {
+    // Footer / Filter Input / Message
+    if let Some(ref filter_input) = state.filter_input {
+        // Show filter input prompt
+        print!("Filter: {}", filter_input);
+        if state.use_color {
+            print!("{}█{}", COLOR_ERROR, COLOR_RESET); // Show cursor
+        } else {
+            print!("_"); // Simple cursor
+        }
+    } else if let Some(ref msg) = state.message {
+        if state.use_color {
             print!("{}{}{}", COLOR_ERROR, msg, COLOR_RESET);
         } else {
             print!("{}", msg);
@@ -648,6 +664,10 @@ fn render(state: &State) -> io::Result<()> {
                 YankMode::Move => "move",
             };
             print!(" [{} {}]", yanked_count, mode);
+        }
+        
+        if let Some(ref current_filter) = state.filter {
+            print!(" (filtered: {})", current_filter);
         }
     }
     
@@ -689,6 +709,40 @@ fn get_key() -> io::Result<Option<Vec<u8>>> {
         }
         _ => Ok(None),
     }
+}
+
+fn handle_filter_input(state: &mut State, key: u8) -> io::Result<bool> {
+    if let Some(ref mut filter_input) = state.filter_input {
+        match key {
+            10 | 13 => { // Enter
+                // Apply the filter
+                if filter_input.is_empty() {
+                    state.filter = None;
+                } else {
+                    state.filter = Some(filter_input.clone());
+                }
+                state.filter_input = None;
+                state.cursor = 0;
+                state.view_offset = 0;
+                return Ok(true); // Reload directory
+            }
+            27 => { // ESC
+                // Cancel filtering
+                state.filter_input = None;
+                return Ok(false);
+            }
+            127 | 8 => { // Backspace
+                filter_input.pop();
+                return Ok(false);
+            }
+            32..=126 => { // Printable ASCII
+                filter_input.push(key as char);
+                return Ok(false);
+            }
+            _ => return Ok(false),
+        }
+    }
+    Ok(false)
 }
 
 fn handle_two_key_combo(first: u8, second: u8) -> Option<Action> {
@@ -1029,25 +1083,8 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
         }
         
         Action::Filter => {
-            restore_terminal()?;
-            print!("Filter: ");
-            io::stdout().flush()?;
-            
-            let mut filter = String::new();
-            io::stdin().read_line(&mut filter)?;
-            let filter = filter.trim();
-            
-            setup_terminal()?;
-            
-            state.filter = if filter.is_empty() {
-                None
-            } else {
-                Some(filter.to_string())
-            };
-            
-            state.cursor = 0;
-            state.view_offset = 0;
-            load_directory(state)?;
+            // Start inline filtering mode
+            state.filter_input = Some(String::new());
         }
         
         Action::ToggleHidden => {

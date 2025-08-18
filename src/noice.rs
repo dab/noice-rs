@@ -44,7 +44,6 @@ pub struct State {
     term_height: usize,
     term_width: usize,
     message: Option<String>,
-    yank_mode: YankMode,
     use_color: bool,
     tilde_home: bool,
     save_file: Option<String>,
@@ -61,11 +60,6 @@ pub enum SortMode {
     Version,
 }
 
-#[derive(Clone, Copy)]
-pub enum YankMode {
-    Copy,
-    Move,
-}
 
 static mut ORIG_TERMIOS: Option<termios> = None;
 
@@ -217,7 +211,6 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
         term_height: 24,
         term_width: 80,
         message: None,
-        yank_mode: YankMode::Copy,
         use_color,
         tilde_home,
         save_file,
@@ -659,11 +652,7 @@ fn render(state: &State) -> io::Result<()> {
         }
         
         if yanked_count > 0 {
-            let mode = match state.yank_mode {
-                YankMode::Copy => "copy",
-                YankMode::Move => "move",
-            };
-            print!(" [{} {}]", yanked_count, mode);
+            print!(" [{} yanked]", yanked_count);
         }
         
         if let Some(ref current_filter) = state.filter {
@@ -905,7 +894,6 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                 }
             }
             
-            state.yank_mode = YankMode::Copy;
             
             if !state.yanked.is_empty() {
                 state.message = Some(format!("Yanked {} item(s)", state.yanked.len()));
@@ -913,21 +901,29 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
         }
         
         Action::MoveFiles => {
-            state.yanked = state.entries.iter()
-                .filter(|e| e.marked)
-                .map(|e| e.path.clone())
-                .collect();
-            
             if state.yanked.is_empty() {
-                if let Some(entry) = state.entries.get(state.cursor) {
-                    state.yanked.push(entry.path.clone());
+                state.message = Some("Nothing to move".to_string());
+            } else {
+                let mut success = 0;
+                let mut errors = Vec::new();
+                
+                for path in &state.yanked {
+                    let dest = state.dir.join(path.file_name().unwrap());
+                    
+                    match move_file(path, &dest) {
+                        Ok(_) => success += 1,
+                        Err(e) => errors.push(format!("{}: {}", path.display(), e)),
+                    }
                 }
-            }
-            
-            state.yank_mode = YankMode::Move;
-            
-            if !state.yanked.is_empty() {
-                state.message = Some(format!("Ready to move {} item(s)", state.yanked.len()));
+                
+                if errors.is_empty() {
+                    state.message = Some(format!("Moved {} item(s)", success));
+                    state.yanked.clear();
+                } else {
+                    state.message = Some(format!("Errors: {}", errors.join(", ")));
+                }
+                
+                load_directory(state)?;
             }
         }
         
@@ -941,12 +937,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                 for path in &state.yanked {
                     let dest = state.dir.join(path.file_name().unwrap());
                     
-                    let result = match state.yank_mode {
-                        YankMode::Copy => copy_recursive(path, &dest),
-                        YankMode::Move => move_file(path, &dest),
-                    };
-                    
-                    match result {
+                    match copy_recursive(path, &dest) {
                         Ok(_) => success += 1,
                         Err(e) => errors.push(format!("{}: {}", path.display(), e)),
                     }
@@ -954,9 +945,6 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                 
                 if errors.is_empty() {
                     state.message = Some(format!("Pasted {} item(s)", success));
-                    if matches!(state.yank_mode, YankMode::Move) {
-                        state.yanked.clear();
-                    }
                 } else {
                     state.message = Some(format!("Errors: {}", errors.join(", ")));
                 }

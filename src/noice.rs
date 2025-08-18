@@ -873,8 +873,9 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
             if let Some(entry) = state.entries.get(state.cursor) {
                 if entry.is_dir {
                     // Canonicalize the path to ensure it's absolute
-                    state.dir = entry.path.canonicalize()
+                    let new_dir = entry.path.canonicalize()
                         .unwrap_or_else(|_| entry.path.clone());
+                    state.dir = new_dir;
                     state.cursor = 0;
                     state.view_offset = 0;
                     state.filter = None;
@@ -926,17 +927,19 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
         }
         
         Action::Yank => {
-            state.yanked = state.entries.iter()
-                .filter(|e| e.marked)
-                .map(|e| e.path.clone())
-                .collect();
+            // Optimize: Clear and rebuild yanked list to avoid cloning
+            state.yanked.clear();
+            state.yanked.extend(
+                state.entries.iter()
+                    .filter(|e| e.marked)
+                    .map(|e| e.path.clone())
+            );
             
             if state.yanked.is_empty() {
                 if let Some(entry) = state.entries.get(state.cursor) {
                     state.yanked.push(entry.path.clone());
                 }
             }
-            
             
             if !state.yanked.is_empty() {
                 state.message = Some(format!("Yanked {} item(s)", state.yanked.len()));
@@ -997,18 +1000,20 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
         }
         
         Action::Delete => {
-            let to_delete: Vec<_> = state.entries.iter()
+            // Optimize: Use references first, only clone when needed for deletion
+            let marked_paths: Vec<&Path> = state.entries.iter()
                 .filter(|e| e.marked)
-                .map(|e| e.path.clone())
+                .map(|e| e.path.as_path())
                 .collect();
             
-            let to_delete = if to_delete.is_empty() {
+            let paths_to_delete: Vec<PathBuf> = if marked_paths.is_empty() {
                 state.entries.get(state.cursor)
                     .map(|e| vec![e.path.clone()])
                     .unwrap_or_default()
             } else {
-                to_delete
+                marked_paths.into_iter().map(|p| p.to_path_buf()).collect()
             };
+            let to_delete = paths_to_delete;
             
             if !to_delete.is_empty() {
                 restore_terminal()?;
@@ -1181,11 +1186,10 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
         }
         
         Action::Jump(key) => {
-            // Handle special case for lastdir
+            // Handle special case for lastdir  
             if key == b'\'' {
-                if let Some(last) = state.last_dir.clone() {
-                    let temp = state.dir.clone();
-                    state.dir = last;
+                if let Some(last) = state.last_dir.take() {
+                    let temp = std::mem::replace(&mut state.dir, last);
                     state.last_dir = Some(temp);
                     state.cursor = 0;
                     state.view_offset = 0;
@@ -1202,9 +1206,8 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                     let new_dir = expand_tilde(path);
                     if new_dir.exists() && new_dir.is_dir() {
                         // Canonicalize the path to ensure it's absolute
-                        state.last_dir = Some(state.dir.clone());
-                        state.dir = new_dir.canonicalize()
-                            .unwrap_or(new_dir);
+                        let canonical_dir = new_dir.canonicalize().unwrap_or(new_dir);
+                        state.last_dir = Some(std::mem::replace(&mut state.dir, canonical_dir));
                         state.cursor = 0;
                         state.view_offset = 0;
                         state.filter = None;
@@ -1303,9 +1306,8 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
             if !dir_input.is_empty() {
                 let new_dir = expand_tilde(dir_input);
                 if new_dir.exists() && new_dir.is_dir() {
-                    state.last_dir = Some(state.dir.clone());
-                    state.dir = new_dir.canonicalize()
-                        .unwrap_or(new_dir);
+                    let canonical_dir = new_dir.canonicalize().unwrap_or(new_dir);
+                    state.last_dir = Some(std::mem::replace(&mut state.dir, canonical_dir));
                     state.cursor = 0;
                     state.view_offset = 0;
                     state.filter = None;

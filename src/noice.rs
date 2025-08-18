@@ -52,6 +52,10 @@ pub struct State {
     pending_key: Option<u8>,
     filter_input: Option<String>,
     longest_entry_width: usize,  // Track longest entry name+suffix for column alignment
+    // Display cache for performance optimization
+    cached_dir_display: Option<String>,
+    cached_counts: (usize, usize), // (marked_count, yanked_count)
+    cache_dirty: bool, // Whether caches need to be rebuilt
 }
 
 #[derive(Clone, Copy)]
@@ -220,6 +224,10 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
         pending_key: None,
         filter_input: None,
         longest_entry_width: 0,
+        // Initialize display cache
+        cached_dir_display: None,
+        cached_counts: (0, 0),
+        cache_dirty: true,
     };
     
     update_terminal_size(&mut state)?;
@@ -234,7 +242,7 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
     let mut watcher = FileWatcher::new(&state.dir).ok();
     
     loop {
-        render(&state)?;
+        render(&mut state)?;
         
         if let Some(ref w) = watcher {
             if w.has_event() {
@@ -507,6 +515,7 @@ fn load_directory(state: &mut State) -> io::Result<()> {
     }
     
     state.entries = entries;
+    state.cache_dirty = true; // Invalidate cache when entries change
     
     // Calculate longest entry width for column alignment (like original C code)
     state.longest_entry_width = state.entries.iter()
@@ -544,11 +553,13 @@ fn adjust_view_offset(state: &mut State) {
     }
 }
 
-fn render(state: &State) -> io::Result<()> {
-    print!("\x1b[H\x1b[2J"); // Clear screen
+fn update_display_cache(state: &mut State) {
+    if !state.cache_dirty {
+        return;
+    }
     
-    // Header - with tilde_home support
-    let dir_display = if state.tilde_home {
+    // Update directory display cache
+    state.cached_dir_display = Some(if state.tilde_home {
         if let Ok(home) = env::var("HOME") {
             let dir_str = state.dir.to_string_lossy();
             if dir_str.starts_with(&home) {
@@ -563,7 +574,24 @@ fn render(state: &State) -> io::Result<()> {
         "/".to_string()
     } else {
         state.dir.display().to_string()
-    };
+    });
+    
+    // Update counts cache
+    let marked_count = state.entries.iter().filter(|e| e.marked).count();
+    let yanked_count = state.yanked.len();
+    state.cached_counts = (marked_count, yanked_count);
+    
+    state.cache_dirty = false;
+}
+
+fn render(state: &mut State) -> io::Result<()> {
+    print!("\x1b[H\x1b[2J"); // Clear screen
+    
+    // Update cache if dirty
+    update_display_cache(state);
+    
+    // Header - use cached directory display
+    let dir_display = state.cached_dir_display.as_ref().unwrap();
     
     if state.use_color {
         println!(" \x1b[1m{}\x1b[0m", dir_display);
@@ -666,8 +694,8 @@ fn render(state: &State) -> io::Result<()> {
             print!(" {}", msg);
         }
     } else {
-        let marked_count = state.entries.iter().filter(|e| e.marked).count();
-        let yanked_count = state.yanked.len();
+        // Use cached counts for better performance
+        let (marked_count, yanked_count) = state.cached_counts;
         
         print!(" {}/{}", state.cursor + 1, state.entries.len());
         
@@ -879,6 +907,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                     state.cursor = 0;
                     state.view_offset = 0;
                     state.filter = None;
+                    state.cache_dirty = true; // Invalidate cache when directory changes
                     load_directory(state)?;
                 } else {
                     open_file(&entry.path)?;
@@ -913,6 +942,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
         Action::Mark => {
             if let Some(entry) = state.entries.get_mut(state.cursor) {
                 entry.marked = !entry.marked;
+                state.cache_dirty = true; // Invalidate cache when marking changes
                 if state.cursor < state.entries.len() - 1 {
                     state.cursor += 1;
                     adjust_view_offset(state);
@@ -924,6 +954,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
             for entry in &mut state.entries {
                 entry.marked = false;
             }
+            state.cache_dirty = true; // Invalidate cache when unmarking all
         }
         
         Action::Yank => {
@@ -944,6 +975,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
             if !state.yanked.is_empty() {
                 state.message = Some(format!("Yanked {} item(s)", state.yanked.len()));
             }
+            state.cache_dirty = true; // Invalidate cache when yank list changes
         }
         
         Action::MoveFiles => {

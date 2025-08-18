@@ -16,7 +16,7 @@ use libc::{inotify_init1, inotify_add_watch, inotify_event, IN_NONBLOCK, IN_MODI
 #[cfg(target_os = "macos")]
 use libc::{kqueue, kevent, EVFILT_VNODE, EV_ADD, EV_CLEAR, NOTE_WRITE};
 
-include!("../config.rs");
+include!(concat!(env!("OUT_DIR"), "/config.rs"));
 
 #[derive(Clone)]
 pub struct Entry {

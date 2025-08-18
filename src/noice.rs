@@ -37,12 +37,19 @@ pub struct State {
     filter: Option<String>,
     show_hidden: bool,
     dirs_first: bool,
+    show_size: bool,
+    version_sort: bool,
     sort_mode: SortMode,
     view_offset: usize,
     term_height: usize,
     term_width: usize,
     message: Option<String>,
     yank_mode: YankMode,
+    use_color: bool,
+    tilde_home: bool,
+    save_file: Option<String>,
+    last_dir: Option<PathBuf>,
+    pending_key: Option<u8>,
 }
 
 #[derive(Clone, Copy)]
@@ -50,6 +57,7 @@ pub enum SortMode {
     Name,
     Size,
     Time,
+    Version,
 }
 
 #[derive(Clone, Copy)]
@@ -178,17 +186,17 @@ impl FileWatcher {
     }
 }
 
-pub fn run(dir: &str) -> io::Result<()> {
+pub fn run(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<String>) -> io::Result<()> {
     setup_terminal()?;
     
-    let result = run_browser(dir);
+    let result = run_browser(dir, use_color, tilde_home, save_file);
     
     restore_terminal()?;
     
     result
 }
 
-fn run_browser(dir: &str) -> io::Result<()> {
+fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<String>) -> io::Result<()> {
     let initial_dir = expand_tilde(dir);
     let canonical_dir = initial_dir.canonicalize()
         .unwrap_or_else(|_| initial_dir.clone());
@@ -201,12 +209,19 @@ fn run_browser(dir: &str) -> io::Result<()> {
         filter: None,
         show_hidden: SHOW_HIDDEN,
         dirs_first: DIRS_FIRST,
-        sort_mode: SortMode::Name,
+        show_size: SHOW_SIZE,
+        version_sort: VERSION_SORT,
+        sort_mode: if VERSION_SORT { SortMode::Version } else { SortMode::Name },
         view_offset: 0,
         term_height: 24,
         term_width: 80,
         message: None,
         yank_mode: YankMode::Copy,
+        use_color,
+        tilde_home,
+        save_file,
+        last_dir: None,
+        pending_key: None,
     };
     
     update_terminal_size(&mut state)?;
@@ -225,14 +240,23 @@ fn run_browser(dir: &str) -> io::Result<()> {
         
         match get_key()? {
             Some(keys) => {
-                if let Some(action) = keys_to_action(&keys) {
+                if let Some(pending) = state.pending_key {
+                    // Handle two-key combos
+                    state.pending_key = None;
+                    let combo_action = handle_two_key_combo(pending, keys.get(0).copied().unwrap_or(0));
+                    if let Some(action) = combo_action {
+                        if handle_action(action, &mut state, keys[0])? {
+                            break;
+                        }
+                    }
+                } else if let Some(action) = keys_to_action(&keys) {
                     if handle_action(action, &mut state, keys[0])? {
                         break;
                     }
-                    
-                    // Update watcher when directory changes
-                    watcher = FileWatcher::new(&state.dir).ok();
                 }
+                
+                // Update watcher when directory changes
+                watcher = FileWatcher::new(&state.dir).ok();
             }
             None => continue,
         }
@@ -285,6 +309,64 @@ fn update_terminal_size(state: &mut State) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn format_size(size: u64) -> String {
+    const UNITS: &[&str] = &["B", "K", "M", "G", "T"];
+    let mut size = size as f64;
+    let mut unit_index = 0;
+    
+    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_index += 1;
+    }
+    
+    if unit_index == 0 {
+        format!("{:.0}{}", size, UNITS[unit_index])
+    } else {
+        format!("{:.1}{}", size, UNITS[unit_index])
+    }
+}
+
+fn version_compare(a: &str, b: &str) -> Ordering {
+    // Simple version number comparison - extract numeric parts
+    let extract_numbers = |s: &str| -> Vec<u32> {
+        let mut nums = Vec::new();
+        let mut current_num = String::new();
+        
+        for ch in s.chars() {
+            if ch.is_ascii_digit() {
+                current_num.push(ch);
+            } else {
+                if !current_num.is_empty() {
+                    if let Ok(n) = current_num.parse::<u32>() {
+                        nums.push(n);
+                    }
+                    current_num.clear();
+                }
+            }
+        }
+        
+        if !current_num.is_empty() {
+            if let Ok(n) = current_num.parse::<u32>() {
+                nums.push(n);
+            }
+        }
+        
+        nums
+    };
+    
+    let nums_a = extract_numbers(a);
+    let nums_b = extract_numbers(b);
+    
+    for (na, nb) in nums_a.iter().zip(nums_b.iter()) {
+        match na.cmp(nb) {
+            Ordering::Equal => continue,
+            other => return other,
+        }
+    }
+    
+    nums_a.len().cmp(&nums_b.len())
 }
 
 fn expand_tilde(path: &str) -> PathBuf {
@@ -359,6 +441,7 @@ fn load_directory(state: &mut State) -> io::Result<()> {
             SortMode::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
             SortMode::Size => b.size.cmp(&a.size),
             SortMode::Time => b.mtime.cmp(&a.mtime),
+            SortMode::Version => version_compare(&a.name, &b.name),
         }
     });
     
@@ -425,7 +508,7 @@ fn render(state: &State) -> io::Result<()> {
             let cursor = if i == state.cursor { CURSOR } else { NO_CURSOR };
             let mark = if entry.marked { YANK_SYMBOL } else { "  " };
             
-            let (color_start, color_end) = if USE_COLOR {
+            let (color_start, color_end) = if state.use_color {
                 let color = if entry.marked {
                     COLOR_MARKED
                 } else if entry.is_link {
@@ -452,13 +535,21 @@ fn render(state: &State) -> io::Result<()> {
                 ""
             };
             
+            let size_str = if state.show_size && !entry.is_dir {
+                format!(" {:>8}", format_size(entry.size))
+            } else if state.show_size {
+                "         ".to_string() // 9 spaces for alignment
+            } else {
+                String::new()
+            };
+            
             let name = format!("{}{}", entry.name, suffix);
-            let max_width = state.term_width.saturating_sub(10);
-            let truncated = if name.chars().count() > max_width {
+            let available_width = state.term_width.saturating_sub(10 + size_str.len());
+            let truncated = if name.chars().count() > available_width {
                 let mut truncated = String::new();
                 let mut char_count = 0;
                 for ch in name.chars() {
-                    if char_count >= max_width - 3 {
+                    if char_count >= available_width.saturating_sub(3) {
                         break;
                     }
                     truncated.push(ch);
@@ -469,7 +560,7 @@ fn render(state: &State) -> io::Result<()> {
                 name
             };
             
-            println!("{}{}{}{}{}", cursor, mark, color_start, truncated, color_end);
+            println!("{}{}{}{}{}{}", cursor, mark, color_start, truncated, size_str, color_end);
         }
     }
     
@@ -541,6 +632,24 @@ fn get_key() -> io::Result<Option<Vec<u8>>> {
             }
         }
         _ => Ok(None),
+    }
+}
+
+fn handle_two_key_combo(first: u8, second: u8) -> Option<Action> {
+    match (first, second) {
+        (b'g', b'g') => Some(Action::Home),
+        (b'g', key) => {
+            // g<key> for directory jumps
+            Some(Action::Jump(key))
+        }
+        (b'\'', key) => {
+            // '<key> for directory jumps  
+            Some(Action::Jump(key))
+        }
+        (b'D', b'D') => Some(Action::Delete),
+        (b'n', b'f') => Some(Action::MakeFile),
+        (b'n', b'd') => Some(Action::MakeDir),
+        _ => None,
     }
 }
 
@@ -948,11 +1057,28 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
         }
         
         Action::Jump(key) => {
+            // Handle special case for lastdir
+            if key == b'\'' {
+                if let Some(last) = state.last_dir.clone() {
+                    let temp = state.dir.clone();
+                    state.dir = last;
+                    state.last_dir = Some(temp);
+                    state.cursor = 0;
+                    state.view_offset = 0;
+                    state.filter = None;
+                    load_directory(state)?;
+                } else {
+                    state.message = Some("No previous directory".to_string());
+                }
+                return Ok(false);
+            }
+            
             for &(k, path) in DIR_JUMPS {
-                if k == key {
+                if k == key && !path.is_empty() {
                     let new_dir = expand_tilde(path);
                     if new_dir.exists() && new_dir.is_dir() {
                         // Canonicalize the path to ensure it's absolute
+                        state.last_dir = Some(state.dir.clone());
                         state.dir = new_dir.canonicalize()
                             .unwrap_or(new_dir);
                         state.cursor = 0;
@@ -965,6 +1091,205 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                     break;
                 }
             }
+        }
+        
+        Action::UnYank => {
+            state.yanked.clear();
+            state.message = Some("Cleared yanked items".to_string());
+        }
+        
+        Action::ToggleSize => {
+            state.show_size = !state.show_size;
+            state.message = Some(format!("Show size: {}", if state.show_size { "on" } else { "off" }));
+        }
+        
+        Action::ToggleVersionSort => {
+            state.version_sort = !state.version_sort;
+            if state.version_sort {
+                state.sort_mode = SortMode::Version;
+            } else {
+                state.sort_mode = SortMode::Name;
+            }
+            load_directory(state)?;
+            state.message = Some(format!("Version sort: {}", if state.version_sort { "on" } else { "off" }));
+        }
+        
+        Action::HalfPageUp => {
+            let half_page = (state.term_height / 2).max(1);
+            state.cursor = state.cursor.saturating_sub(half_page);
+            adjust_view_offset(state);
+        }
+        
+        Action::HalfPageDown => {
+            let half_page = (state.term_height / 2).max(1);
+            state.cursor = (state.cursor + half_page).min(state.entries.len().saturating_sub(1));
+            adjust_view_offset(state);
+        }
+        
+        Action::MakeFile => {
+            restore_terminal()?;
+            print!("New file name: ");
+            io::stdout().flush()?;
+            
+            let mut name = String::new();
+            io::stdin().read_line(&mut name)?;
+            let name = name.trim();
+            
+            setup_terminal()?;
+            
+            if !name.is_empty() {
+                let path = state.dir.join(name);
+                
+                // Create parent directories if needed
+                if let Some(parent) = path.parent() {
+                    if !parent.exists() {
+                        fs::create_dir_all(parent)?;
+                    }
+                }
+                
+                match fs::File::create(&path) {
+                    Ok(_) => {
+                        state.message = Some("File created".to_string());
+                        load_directory(state)?;
+                    }
+                    Err(e) => {
+                        state.message = Some(format!("Error: {}", e));
+                    }
+                }
+            }
+        }
+        
+        Action::Redraw => {
+            // Force redraw by clearing message
+            state.message = None;
+        }
+        
+        Action::ChangeDir => {
+            restore_terminal()?;
+            print!("Change to directory: ");
+            io::stdout().flush()?;
+            
+            let mut dir_input = String::new();
+            io::stdin().read_line(&mut dir_input)?;
+            let dir_input = dir_input.trim();
+            
+            setup_terminal()?;
+            
+            if !dir_input.is_empty() {
+                let new_dir = expand_tilde(dir_input);
+                if new_dir.exists() && new_dir.is_dir() {
+                    state.last_dir = Some(state.dir.clone());
+                    state.dir = new_dir.canonicalize()
+                        .unwrap_or(new_dir);
+                    state.cursor = 0;
+                    state.view_offset = 0;
+                    state.filter = None;
+                    load_directory(state)?;
+                } else {
+                    state.message = Some(format!("Directory not found: {}", dir_input));
+                }
+            }
+        }
+        
+        Action::EditFile => {
+            if let Some(entry) = state.entries.get(state.cursor) {
+                restore_terminal()?;
+                
+                let editor = env::var("EDITOR").unwrap_or_else(|_| DEFAULT_EDITOR.to_string());
+                let result = Command::new(&editor)
+                    .arg(&entry.path)
+                    .stdin(Stdio::inherit())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit())
+                    .status();
+                
+                setup_terminal()?;
+                update_terminal_size(state)?;
+                load_directory(state)?;
+                
+                if let Err(e) = result {
+                    state.message = Some(format!("Error running editor: {}", e));
+                }
+            }
+        }
+        
+        Action::MediaPlayer => {
+            if let Some(entry) = state.entries.get(state.cursor) {
+                restore_terminal()?;
+                
+                let player = env::var("NOICEMP").unwrap_or_else(|_| DEFAULT_MEDIA_PLAYER.to_string());
+                let parts: Vec<&str> = player.split_whitespace().collect();
+                let (cmd, args) = if let Some((first, rest)) = parts.split_first() {
+                    (*first, rest)
+                } else {
+                    (player.as_str(), &[][..])
+                };
+                
+                let result = Command::new(cmd)
+                    .args(args)
+                    .arg(&entry.path)
+                    .stdin(Stdio::inherit())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit())
+                    .status();
+                
+                setup_terminal()?;
+                update_terminal_size(state)?;
+                
+                if let Err(e) = result {
+                    state.message = Some(format!("Error running media player: {}", e));
+                }
+            }
+        }
+        
+        Action::TopMonitor => {
+            restore_terminal()?;
+            
+            let top = env::var("NOICETOP").unwrap_or_else(|_| DEFAULT_TOP.to_string());
+            let result = Command::new(&top)
+                .current_dir(&state.dir)
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .status();
+            
+            setup_terminal()?;
+            update_terminal_size(state)?;
+            
+            if let Err(e) = result {
+                state.message = Some(format!("Error running top: {}", e));
+            }
+        }
+        
+        Action::ShowHelp => {
+            restore_terminal()?;
+            
+            let man_cmd = env::var("NOICEMAN").unwrap_or_else(|_| DEFAULT_MAN_COMMAND.to_string());
+            let parts: Vec<&str> = man_cmd.split_whitespace().collect();
+            let (cmd, args) = if let Some((first, rest)) = parts.split_first() {
+                (*first, rest)
+            } else {
+                (man_cmd.as_str(), &[][..])
+            };
+            
+            let result = Command::new(cmd)
+                .args(args)
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .status();
+            
+            setup_terminal()?;
+            update_terminal_size(state)?;
+            
+            if let Err(e) = result {
+                state.message = Some(format!("Error running help: {}", e));
+            }
+        }
+        
+        Action::PendingKey(key) => {
+            state.pending_key = Some(key);
+            return Ok(false);
         }
     }
     

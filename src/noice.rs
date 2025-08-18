@@ -867,6 +867,149 @@ fn keys_to_action(keys: &[u8]) -> Option<Action> {
     None
 }
 
+fn handle_delete_action(state: &mut State) -> io::Result<()> {
+    // Optimize: Use references first, only clone when needed for deletion
+    let marked_paths: Vec<&Path> = state.entries.iter()
+        .filter(|e| e.marked)
+        .map(|e| e.path.as_path())
+        .collect();
+    
+    let paths_to_delete: Vec<PathBuf> = if marked_paths.is_empty() {
+        state.entries.get(state.cursor)
+            .map(|e| vec![e.path.clone()])
+            .unwrap_or_default()
+    } else {
+        marked_paths.into_iter().map(|p| p.to_path_buf()).collect()
+    };
+    let to_delete = paths_to_delete;
+    
+    if !to_delete.is_empty() {
+        restore_terminal()?;
+        print!("Delete {} item(s)? [y/N] ", to_delete.len());
+        io::stdout().flush()?;
+        
+        let mut response = String::new();
+        io::stdin().read_line(&mut response)?;
+        
+        setup_terminal()?;
+        
+        if response.trim().to_lowercase() == "y" {
+            let mut errors = Vec::new();
+            
+            for path in to_delete {
+                let result = if path.is_dir() {
+                    fs::remove_dir_all(&path)
+                } else {
+                    fs::remove_file(&path)
+                };
+                
+                if let Err(e) = result {
+                    errors.push(format!("{}: {}", path.display(), e));
+                }
+            }
+            
+            if errors.is_empty() {
+                state.message = Some("Deleted".to_string());
+            } else {
+                state.message = Some(format!("Errors: {}", errors.join(", ")));
+            }
+            
+            load_directory(state)?;
+        }
+    }
+    Ok(())
+}
+
+fn handle_file_operations(action: Action, state: &mut State) -> io::Result<()> {
+    match action {
+        Action::MoveFiles => {
+            if state.yanked.is_empty() {
+                state.message = Some("Nothing to move".to_string());
+            } else {
+                let mut success = 0;
+                let mut errors = Vec::new();
+                
+                for path in &state.yanked {
+                    let dest = state.dir.join(path.file_name().unwrap());
+                    
+                    match move_file(path, &dest) {
+                        Ok(_) => success += 1,
+                        Err(e) => errors.push(format!("{}: {}", path.display(), e)),
+                    }
+                }
+                
+                if errors.is_empty() {
+                    state.message = Some(format!("Moved {} item(s)", success));
+                    state.yanked.clear();
+                } else {
+                    state.message = Some(format!("Errors: {}", errors.join(", ")));
+                }
+                
+                load_directory(state)?;
+            }
+        }
+        
+        Action::Paste => {
+            if state.yanked.is_empty() {
+                state.message = Some("Nothing to paste".to_string());
+            } else {
+                let mut success = 0;
+                let mut errors = Vec::new();
+                
+                for path in &state.yanked {
+                    let dest = state.dir.join(path.file_name().unwrap());
+                    
+                    match copy_recursive(path, &dest) {
+                        Ok(_) => success += 1,
+                        Err(e) => errors.push(format!("{}: {}", path.display(), e)),
+                    }
+                }
+                
+                if errors.is_empty() {
+                    state.message = Some(format!("Pasted {} item(s)", success));
+                } else {
+                    state.message = Some(format!("Errors: {}", errors.join(", ")));
+                }
+                
+                load_directory(state)?;
+            }
+        }
+        
+        Action::Link => {
+            if state.yanked.is_empty() {
+                state.message = Some("Nothing to link".to_string());
+            } else {
+                let mut success = 0;
+                let mut errors = Vec::new();
+                
+                for path in &state.yanked {
+                    let dest = state.dir.join(path.file_name().unwrap());
+                    
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::symlink;
+                        match symlink(path, &dest) {
+                            Ok(_) => success += 1,
+                            Err(e) => errors.push(format!("{}: {}", path.display(), e)),
+                        }
+                    }
+                }
+                
+                if errors.is_empty() {
+                    state.message = Some(format!("Created {} link(s)", success));
+                } else {
+                    state.message = Some(format!("Errors: {}", errors.join(", ")));
+                }
+                
+                load_directory(state)?;
+            }
+        }
+        
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
 fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool> {
     state.message = None;
     
@@ -988,109 +1131,12 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
             state.cache_dirty = true; // Invalidate cache when yank list changes
         }
         
-        Action::MoveFiles => {
-            if state.yanked.is_empty() {
-                state.message = Some("Nothing to move".to_string());
-            } else {
-                let mut success = 0;
-                let mut errors = Vec::new();
-                
-                for path in &state.yanked {
-                    let dest = state.dir.join(path.file_name().unwrap());
-                    
-                    match move_file(path, &dest) {
-                        Ok(_) => success += 1,
-                        Err(e) => errors.push(format!("{}: {}", path.display(), e)),
-                    }
-                }
-                
-                if errors.is_empty() {
-                    state.message = Some(format!("Moved {} item(s)", success));
-                    state.yanked.clear();
-                } else {
-                    state.message = Some(format!("Errors: {}", errors.join(", ")));
-                }
-                
-                load_directory(state)?;
-            }
-        }
-        
-        Action::Paste => {
-            if state.yanked.is_empty() {
-                state.message = Some("Nothing to paste".to_string());
-            } else {
-                let mut success = 0;
-                let mut errors = Vec::new();
-                
-                for path in &state.yanked {
-                    let dest = state.dir.join(path.file_name().unwrap());
-                    
-                    match copy_recursive(path, &dest) {
-                        Ok(_) => success += 1,
-                        Err(e) => errors.push(format!("{}: {}", path.display(), e)),
-                    }
-                }
-                
-                if errors.is_empty() {
-                    state.message = Some(format!("Pasted {} item(s)", success));
-                } else {
-                    state.message = Some(format!("Errors: {}", errors.join(", ")));
-                }
-                
-                load_directory(state)?;
-            }
+        Action::MoveFiles | Action::Paste | Action::Link => {
+            handle_file_operations(action, state)?;
         }
         
         Action::Delete => {
-            // Optimize: Use references first, only clone when needed for deletion
-            let marked_paths: Vec<&Path> = state.entries.iter()
-                .filter(|e| e.marked)
-                .map(|e| e.path.as_path())
-                .collect();
-            
-            let paths_to_delete: Vec<PathBuf> = if marked_paths.is_empty() {
-                state.entries.get(state.cursor)
-                    .map(|e| vec![e.path.clone()])
-                    .unwrap_or_default()
-            } else {
-                marked_paths.into_iter().map(|p| p.to_path_buf()).collect()
-            };
-            let to_delete = paths_to_delete;
-            
-            if !to_delete.is_empty() {
-                restore_terminal()?;
-                print!("Delete {} item(s)? [y/N] ", to_delete.len());
-                io::stdout().flush()?;
-                
-                let mut response = String::new();
-                io::stdin().read_line(&mut response)?;
-                
-                setup_terminal()?;
-                
-                if response.trim().to_lowercase() == "y" {
-                    let mut errors = Vec::new();
-                    
-                    for path in to_delete {
-                        let result = if path.is_dir() {
-                            fs::remove_dir_all(&path)
-                        } else {
-                            fs::remove_file(&path)
-                        };
-                        
-                        if let Err(e) = result {
-                            errors.push(format!("{}: {}", path.display(), e));
-                        }
-                    }
-                    
-                    if errors.is_empty() {
-                        state.message = Some("Deleted".to_string());
-                    } else {
-                        state.message = Some(format!("Errors: {}", errors.join(", ")));
-                    }
-                    
-                    load_directory(state)?;
-                }
-            }
+            handle_delete_action(state)?;
         }
         
         Action::Rename => {
@@ -1195,36 +1241,6 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
         Action::Reload => {
             load_directory(state)?;
             state.message = Some("Reloaded".to_string());
-        }
-        
-        Action::Link => {
-            if state.yanked.is_empty() {
-                state.message = Some("Nothing to link".to_string());
-            } else {
-                let mut success = 0;
-                let mut errors = Vec::new();
-                
-                for path in &state.yanked {
-                    let dest = state.dir.join(path.file_name().unwrap());
-                    
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::symlink;
-                        match symlink(path, &dest) {
-                            Ok(_) => success += 1,
-                            Err(e) => errors.push(format!("{}: {}", path.display(), e)),
-                        }
-                    }
-                }
-                
-                if errors.is_empty() {
-                    state.message = Some(format!("Created {} link(s)", success));
-                } else {
-                    state.message = Some(format!("Errors: {}", errors.join(", ")));
-                }
-                
-                load_directory(state)?;
-            }
         }
         
         Action::Jump(key) => {

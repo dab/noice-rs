@@ -2,9 +2,8 @@ pub const SHOW_HIDDEN: bool = false;
 pub const DIRS_FIRST: bool = true;
 pub const SHOW_SIZE: bool = false;
 pub const VERSION_SORT: bool = true;
-pub const CURSOR: &str = " > ";
-pub const NO_CURSOR: &str = "   ";
-pub const YANK_SYMBOL: &str = "* ";
+pub const CURSOR_SYMBOL: &str = ">";
+pub const YANK_SYMBOL: &str = "*";
 
 #[derive(Copy, Clone, Debug)]
 pub enum Action {

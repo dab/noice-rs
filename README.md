@@ -28,16 +28,10 @@ A suckless-aligned file browser written in Rust. Minimal dependencies, compile-t
 git clone <repository>
 cd noice-rs
 
-# First time setup (copies default config)
-cp src/config.def.rs config.rs
-
-# Edit config.rs to customize keybindings, colors, file associations, etc.
-# (optional - the default config works out of the box)
-
-# Build
+# Build (config is generated automatically from src/config.def.rs)
 cargo build --release
 
-# The binary will be at target/release/noice-rs
+# The binary will be at target/release/noice
 ```
 
 ## Installation
@@ -84,18 +78,15 @@ Download pre-compiled binaries from the [GitHub Releases](https://github.com/dab
 git clone https://github.com/dab/noice-rs.git
 cd noice-rs
 
-# Set up configuration (copies default config)
-cp src/config.def.rs config.rs
-
-# Build in release mode
+# Build in release mode (config generated automatically)
 cargo build --release
 
 # Install to system directory
-sudo cp target/release/noice-rs /usr/local/bin/noice
+sudo cp target/release/noice /usr/local/bin/noice
 
 # Or install to user directory
 mkdir -p ~/.local/bin
-cp target/release/noice-rs ~/.local/bin/noice
+cp target/release/noice ~/.local/bin/noice
 ```
 
 ### Package Managers
@@ -184,17 +175,20 @@ noice ~
 
 ## Configuration
 
-Edit `config.rs` to customize:
+Configuration is compile-time based. To customize:
 
-- **Keybindings**: Map keys to actions, including two-key combos
-- **File Associations**: Define which programs open which file types  
-- **Directory Jumps**: Set up quick navigation shortcuts for `g<key>` and `'<key>`
-- **Colors**: ANSI color codes for different file types
-- **Display Options**: Show/hide hidden files, directories first, file sizes, etc.
-- **Sorting**: Default sort modes (name, size, time, version)
-- **External Programs**: Default commands for editor, media player, etc.
+1. **Find your build directory**: After building, config is generated in `$OUT_DIR/config.rs`
+2. **Customize config**: Edit the generated config file to customize:
+   - **Keybindings**: Map keys to actions, including two-key combos
+   - **File Associations**: Define which programs open which file types  
+   - **Directory Jumps**: Set up quick navigation shortcuts for `g<key>` and `'<key>`
+   - **Colors**: ANSI color codes for different file types
+   - **Display Options**: Show/hide hidden files, directories first, file sizes, etc.
+   - **Sorting**: Default sort modes (name, size, time, version)
+   - **External Programs**: Default commands for editor, media player, etc.
+3. **Rebuild**: Run `cargo build --release` to apply changes
 
-After making changes, rebuild with `cargo build --release`.
+Alternatively, modify `src/config.def.rs` directly for permanent changes.
 
 ### Environment Variables
 

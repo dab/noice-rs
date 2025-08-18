@@ -250,6 +250,13 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
     let mut watcher = FileWatcher::new(&state.dir).ok();
     
     loop {
+        // Check for terminal resize before rendering
+        if update_terminal_size(&mut state)? {
+            // Terminal was resized, force a full redraw
+            print!("\x1b[2J\x1b[H"); // Clear entire screen and move cursor to home
+            io::stdout().flush()?;
+        }
+        
         render(&mut state)?;
         
         if let Some(ref w) = watcher {
@@ -331,15 +338,24 @@ fn restore_terminal() -> io::Result<()> {
     io::stdout().flush()
 }
 
-fn update_terminal_size(state: &mut State) -> io::Result<()> {
+fn update_terminal_size(state: &mut State) -> io::Result<bool> {
     unsafe {
         let mut ws: libc::winsize = mem::zeroed();
         if libc::ioctl(0, libc::TIOCGWINSZ, &mut ws) == 0 {
-            state.term_height = ws.ws_row as usize;
-            state.term_width = ws.ws_col as usize;
+            let new_height = ws.ws_row as usize;
+            let new_width = ws.ws_col as usize;
+            
+            // Check if size actually changed
+            if state.term_height != new_height || state.term_width != new_width {
+                state.term_height = new_height;
+                state.term_width = new_width;
+                state.cache_dirty = true; // Invalidate cache on resize
+                adjust_view_offset(state);
+                return Ok(true); // Size changed
+            }
         }
     }
-    Ok(())
+    Ok(false) // No change
 }
 
 fn load_session(state: &mut State, save_file: &str) {
@@ -1210,7 +1226,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                 .status()?;
             
             setup_terminal()?;
-            update_terminal_size(state)?;
+            let _ = update_terminal_size(state)?;
             load_directory(state)?;
         }
         
@@ -1397,7 +1413,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                     .status();
                 
                 setup_terminal()?;
-                update_terminal_size(state)?;
+                let _ = update_terminal_size(state)?;
                 load_directory(state)?;
                 
                 if let Err(e) = result {
@@ -1427,7 +1443,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                     .status();
                 
                 setup_terminal()?;
-                update_terminal_size(state)?;
+                let _ = update_terminal_size(state)?;
                 
                 if let Err(e) = result {
                     state.message = Some(format!("Error running media player: {}", e));
@@ -1447,7 +1463,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                 .status();
             
             setup_terminal()?;
-            update_terminal_size(state)?;
+            let _ = update_terminal_size(state)?;
             
             if let Err(e) = result {
                 state.message = Some(format!("Error running top: {}", e));
@@ -1473,7 +1489,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                 .status();
             
             setup_terminal()?;
-            update_terminal_size(state)?;
+            let _ = update_terminal_size(state)?;
             
             if let Err(e) = result {
                 state.message = Some(format!("Error running help: {}", e));

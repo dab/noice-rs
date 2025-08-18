@@ -562,8 +562,20 @@ fn render(state: &State) -> io::Result<()> {
     
     for i in state.view_offset..end {
         if let Some(entry) = state.entries.get(i) {
-            let cursor = if i == state.cursor { CURSOR } else { NO_CURSOR };
-            let mark = if entry.marked { YANK_SYMBOL } else { "  " };
+            // Cursor gets exactly one space, others align to match
+            let prefix = if i == state.cursor {
+                if entry.marked {
+                    format!("{}{} ", CURSOR_SYMBOL, YANK_SYMBOL)  // ">* "
+                } else {
+                    format!("{} ", CURSOR_SYMBOL)  // "> "
+                }
+            } else {
+                if entry.marked {
+                    format!(" {} ", YANK_SYMBOL)  // " * " (aligned with cursor)
+                } else {
+                    "  ".to_string()  // "  " (aligned with cursor)
+                }
+            };
             
             let (color_start, color_end) = if state.use_color {
                 let color = if entry.marked {
@@ -617,7 +629,7 @@ fn render(state: &State) -> io::Result<()> {
                 name
             };
             
-            println!("{}{}{}{}{}{}", cursor, mark, color_start, truncated, size_str, color_end);
+            println!(" {}{}{}{}{}", prefix, color_start, truncated, size_str, color_end);
         }
     }
     

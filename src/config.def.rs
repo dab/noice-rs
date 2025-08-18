@@ -90,7 +90,7 @@ pub const KEYBINDS: &[(u8, Action)] = &[
     (21, Action::HalfPageUp),   // Ctrl-U
     (12, Action::Redraw),       // Ctrl-L
     (8, Action::ToggleHidden),  // Ctrl-H
-    (27, Action::Quit),         // ESC
+    // (27, Action::Quit),         // ESC - removed to prevent accidental quit
     (10, Action::Enter),        // Enter
     (127, Action::Back),        // Backspace
 ];

@@ -685,12 +685,31 @@ fn get_key() -> io::Result<Option<Vec<u8>>> {
     match io::stdin().read(&mut buf[..1]) {
         Ok(1) => {
             if buf[0] == 27 { // ESC sequence
-                // Try to read more bytes for arrow keys
-                if let Ok(2) = io::stdin().read(&mut buf[1..3]) {
-                    if buf[1] == b'[' {
-                        return Ok(Some(vec![buf[0], buf[1], buf[2]]));
+                // Set non-blocking mode for potential arrow key detection
+                unsafe {
+                    let mut fds: libc::fd_set = mem::zeroed();
+                    libc::FD_SET(0, &mut fds);
+                    
+                    let mut timeout = libc::timeval {
+                        tv_sec: 0,
+                        tv_usec: 5000, // 5ms timeout - quick check for arrow sequences
+                    };
+                    
+                    let result = libc::select(1, &mut fds, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout);
+                    if result > 0 {
+                        // More data available, try to read arrow key sequence
+                        if let Ok(2) = io::stdin().read(&mut buf[1..3]) {
+                            if buf[1] == b'[' {
+                                return Ok(Some(vec![buf[0], buf[1], buf[2]]));
+                            } else {
+                                // Not an arrow key sequence, put the extra bytes back somehow
+                                // For now, just return the ESC
+                                return Ok(Some(vec![buf[0]]));
+                            }
+                        }
                     }
                 }
+                // No additional data within timeout, treat as standalone ESC
                 Ok(Some(vec![buf[0]]))
             } else {
                 Ok(Some(vec![buf[0]]))

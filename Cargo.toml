@@ -1,0 +1,17 @@
+[package]
+name = "noice-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libc = { version = "0.2", default-features = false }
+
+[build-dependencies]
+# None - build.rs uses std only
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Link-time optimization
+codegen-units = 1   # Single codegen unit
+strip = true        # Strip symbols
+panic = "abort"     # No unwinding

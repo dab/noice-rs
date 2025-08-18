@@ -189,8 +189,12 @@ pub fn run(dir: &str) -> io::Result<()> {
 }
 
 fn run_browser(dir: &str) -> io::Result<()> {
+    let initial_dir = expand_tilde(dir);
+    let canonical_dir = initial_dir.canonicalize()
+        .unwrap_or_else(|_| initial_dir.clone());
+    
     let mut state = State {
-        dir: expand_tilde(dir),
+        dir: canonical_dir,
         entries: Vec::new(),
         cursor: 0,
         yanked: Vec::new(),
@@ -617,7 +621,9 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
         Action::Enter => {
             if let Some(entry) = state.entries.get(state.cursor) {
                 if entry.is_dir {
-                    state.dir = entry.path.clone();
+                    // Canonicalize the path to ensure it's absolute
+                    state.dir = entry.path.canonicalize()
+                        .unwrap_or_else(|_| entry.path.clone());
                     state.cursor = 0;
                     state.view_offset = 0;
                     state.filter = None;
@@ -946,7 +952,9 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                 if k == key {
                     let new_dir = expand_tilde(path);
                     if new_dir.exists() && new_dir.is_dir() {
-                        state.dir = new_dir;
+                        // Canonicalize the path to ensure it's absolute
+                        state.dir = new_dir.canonicalize()
+                            .unwrap_or(new_dir);
                         state.cursor = 0;
                         state.view_offset = 0;
                         state.filter = None;

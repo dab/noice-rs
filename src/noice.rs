@@ -31,31 +31,39 @@ pub struct Entry {
 }
 
 pub struct State {
+    // Large heap-allocated fields first for better alignment
     dir: PathBuf,
     entries: Vec<Entry>,
-    cursor: usize,
     yanked: Vec<PathBuf>,
     filter: Option<String>,
+    message: Option<String>,
+    save_file: Option<String>,
+    last_dir: Option<PathBuf>,
+    filter_input: Option<String>,
+    cached_dir_display: Option<String>,
+    
+    // usize fields (8 bytes on 64-bit systems)
+    cursor: usize,
+    view_offset: usize,
+    term_height: usize,
+    term_width: usize,
+    longest_entry_width: usize,
+    cached_counts: (usize, usize), // (marked_count, yanked_count)
+    
+    // Enum fields (typically 1 byte + padding)
+    sort_mode: SortMode,
+    
+    // Small fields last to minimize padding
     show_hidden: bool,
     dirs_first: bool,
     show_size: bool,
     version_sort: bool,
-    sort_mode: SortMode,
-    view_offset: usize,
-    term_height: usize,
-    term_width: usize,
-    message: Option<String>,
     use_color: bool,
     tilde_home: bool,
-    save_file: Option<String>,
-    last_dir: Option<PathBuf>,
+    cache_dirty: bool,
+    
+    // Optional single-byte field
     pending_key: Option<u8>,
-    filter_input: Option<String>,
-    longest_entry_width: usize,  // Track longest entry name+suffix for column alignment
-    // Display cache for performance optimization
-    cached_dir_display: Option<String>,
-    cached_counts: (usize, usize), // (marked_count, yanked_count)
-    cache_dirty: bool, // Whether caches need to be rebuilt
 }
 
 #[derive(Clone, Copy)]

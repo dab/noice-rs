@@ -8,6 +8,13 @@ use std::process::{Command, Stdio};
 use std::env;
 use libc::{termios, tcgetattr, tcsetattr, TCSANOW, ECHO, ICANON, VMIN, VTIME};
 use std::mem;
+
+#[cfg(target_os = "linux")]
+use libc::{inotify_init1, inotify_add_watch, inotify_event, IN_NONBLOCK, IN_MODIFY, IN_CREATE, IN_DELETE, IN_MOVED_FROM, IN_MOVED_TO};
+
+#[cfg(target_os = "macos")]
+use libc::{kqueue, kevent, EVFILT_VNODE, EV_ADD, EV_CLEAR, NOTE_WRITE};
+
 include!("../config.rs");
 
 #[derive(Clone)]
@@ -53,6 +60,124 @@ pub enum YankMode {
 
 static mut ORIG_TERMIOS: Option<termios> = None;
 
+#[cfg(target_os = "linux")]
+struct FileWatcher {
+    fd: i32,
+}
+
+#[cfg(target_os = "linux")]
+impl FileWatcher {
+    fn new(path: &Path) -> io::Result<Self> {
+        unsafe {
+            let fd = inotify_init1(IN_NONBLOCK);
+            if fd < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            
+            let path_cstr = std::ffi::CString::new(path.to_str().unwrap())?;
+            let watch = inotify_add_watch(fd, path_cstr.as_ptr(), 
+                IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO);
+            
+            if watch < 0 {
+                libc::close(fd);
+                return Err(io::Error::last_os_error());
+            }
+            
+            Ok(FileWatcher { fd })
+        }
+    }
+    
+    fn has_event(&self) -> bool {
+        unsafe {
+            let mut buffer = [0u8; 1024];
+            let result = libc::read(self.fd, buffer.as_mut_ptr() as *mut libc::c_void, buffer.len());
+            result > 0
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for FileWatcher {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.fd);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct FileWatcher {
+    kq: i32,
+    #[allow(dead_code)]
+    path: PathBuf,
+}
+
+#[cfg(target_os = "macos")]
+impl FileWatcher {
+    fn new(path: &Path) -> io::Result<Self> {
+        unsafe {
+            let kq = kqueue();
+            if kq < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            
+            let fd = libc::open(path.to_str().unwrap().as_ptr() as *const i8, libc::O_RDONLY);
+            if fd < 0 {
+                libc::close(kq);
+                return Err(io::Error::last_os_error());
+            }
+            
+            let mut event: kevent = mem::zeroed();
+            event.ident = fd as usize;
+            event.filter = EVFILT_VNODE;
+            event.flags = EV_ADD | EV_CLEAR;
+            event.fflags = NOTE_WRITE;
+            
+            let result = kevent(kq, &event, 1, std::ptr::null_mut(), 0, std::ptr::null());
+            libc::close(fd);
+            
+            if result < 0 {
+                libc::close(kq);
+                return Err(io::Error::last_os_error());
+            }
+            
+            Ok(FileWatcher { kq, path: path.to_path_buf() })
+        }
+    }
+    
+    fn has_event(&self) -> bool {
+        unsafe {
+            let mut event: kevent = mem::zeroed();
+            let timeout: libc::timespec = mem::zeroed();
+            let result = kevent(self.kq, std::ptr::null(), 0, &mut event, 1, &timeout);
+            result > 0
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for FileWatcher {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.kq);
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+struct FileWatcher;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+impl FileWatcher {
+    fn new(_path: &Path) -> io::Result<Self> {
+        Ok(FileWatcher)
+    }
+    
+    fn has_event(&self) -> bool {
+        false
+    }
+}
+
 pub fn run(dir: &str) -> io::Result<()> {
     setup_terminal()?;
     
@@ -83,15 +208,26 @@ fn run_browser(dir: &str) -> io::Result<()> {
     update_terminal_size(&mut state)?;
     load_directory(&mut state)?;
     
+    let mut watcher = FileWatcher::new(&state.dir).ok();
+    
     loop {
         render(&state)?;
         
+        if let Some(ref w) = watcher {
+            if w.has_event() {
+                load_directory(&mut state)?;
+            }
+        }
+        
         match get_key()? {
-            Some(key) => {
-                if let Some(action) = key_to_action(key) {
-                    if handle_action(action, &mut state, key)? {
+            Some(keys) => {
+                if let Some(action) = keys_to_action(&keys) {
+                    if handle_action(action, &mut state, keys[0])? {
                         break;
                     }
+                    
+                    // Update watcher when directory changes
+                    watcher = FileWatcher::new(&state.dir).ok();
                 }
             }
             None => continue,
@@ -357,24 +493,71 @@ fn render(state: &State) -> io::Result<()> {
     io::stdout().flush()
 }
 
-fn get_key() -> io::Result<Option<u8>> {
-    let mut buf = [0u8; 1];
-    match io::stdin().read_exact(&mut buf) {
-        Ok(_) => Ok(Some(buf[0])),
-        Err(_) => Ok(None),
-    }
-}
-
-fn key_to_action(key: u8) -> Option<Action> {
-    for &(k, action) in KEYBINDS {
-        if k == key {
-            return Some(action);
+fn get_key() -> io::Result<Option<Vec<u8>>> {
+    let mut buf = [0u8; 4];
+    
+    // Set non-blocking read with timeout
+    unsafe {
+        let mut fds: libc::fd_set = mem::zeroed();
+        libc::FD_SET(0, &mut fds);
+        
+        let mut timeout = libc::timeval {
+            tv_sec: 0,
+            tv_usec: 100000, // 100ms timeout
+        };
+        
+        let result = libc::select(1, &mut fds, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout);
+        if result <= 0 {
+            return Ok(None);
         }
     }
     
-    for &(k, _) in DIR_JUMPS {
-        if k == key {
-            return Some(Action::Jump(k));
+    match io::stdin().read(&mut buf[..1]) {
+        Ok(1) => {
+            if buf[0] == 27 { // ESC sequence
+                // Try to read more bytes for arrow keys
+                if let Ok(2) = io::stdin().read(&mut buf[1..3]) {
+                    if buf[1] == b'[' {
+                        return Ok(Some(vec![buf[0], buf[1], buf[2]]));
+                    }
+                }
+                Ok(Some(vec![buf[0]]))
+            } else {
+                Ok(Some(vec![buf[0]]))
+            }
+        }
+        _ => Ok(None),
+    }
+}
+
+fn keys_to_action(keys: &[u8]) -> Option<Action> {
+    // Check for arrow keys (ESC sequences)
+    if keys.len() == 3 && keys[0] == 27 && keys[1] == b'[' {
+        return match keys[2] {
+            b'A' => Some(Action::Previous), // Up arrow
+            b'B' => Some(Action::Next),     // Down arrow
+            b'C' => Some(Action::Enter),    // Right arrow
+            b'D' => Some(Action::Back),     // Left arrow
+            b'H' => Some(Action::Home),     // Home
+            b'F' => Some(Action::End),      // End
+            _ => None,
+        };
+    }
+    
+    // Single key bindings
+    if keys.len() == 1 {
+        let key = keys[0];
+        
+        for &(k, action) in KEYBINDS {
+            if k == key {
+                return Some(action);
+            }
+        }
+        
+        for &(k, _) in DIR_JUMPS {
+            if k == key {
+                return Some(Action::Jump(k));
+            }
         }
     }
     

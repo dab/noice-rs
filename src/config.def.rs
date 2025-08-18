@@ -52,6 +52,8 @@ pub const KEYBINDS: &[(u8, Action)] = &[
     (b'u', Action::UnmarkAll),
     (b'g', Action::Home),
     (b'G', Action::End),
+    (b'[', Action::PageUp),
+    (b']', Action::PageDown),
     (b'r', Action::Rename),
     (b'n', Action::MakeDir),
     (b'!', Action::Shell),
@@ -115,6 +117,5 @@ pub const COLOR_MARKED: &str = "\x1b[33m";    // Yellow
 pub const COLOR_RESET: &str = "\x1b[0m";
 pub const COLOR_ERROR: &str = "\x1b[31m";     // Red
 
-pub const DEFAULT_EDITOR: &str = "vim";
 pub const DEFAULT_PAGER: &str = "less";
 pub const DEFAULT_SHELL: &str = "sh";

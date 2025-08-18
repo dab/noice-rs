@@ -564,19 +564,20 @@ fn render(state: &State) -> io::Result<()> {
     };
     
     if state.use_color {
-        println!("\x1b[1m{}\x1b[0m", dir_display);
+        println!(" \x1b[1m{}\x1b[0m", dir_display);
     } else {
-        println!("{}", dir_display);
+        println!(" {}", dir_display);
     }
     
     if let Some(ref filter) = state.filter {
-        println!("Filter: {}", filter);
-    } else {
-        println!();
+        println!(" Filter: {}", filter);
     }
     
+    // Header bottom border (no gap, like original C implementation)
+    println!("{}", "─".repeat(state.term_width));
+    
     // Entries
-    let view_height = state.term_height.saturating_sub(4);
+    let view_height = state.term_height.saturating_sub(5); // Header(2) + border(1) + footer(1) + margin(1)
     let end = (state.view_offset + view_height).min(state.entries.len());
     
     for i in state.view_offset..end {
@@ -650,7 +651,7 @@ fn render(state: &State) -> io::Result<()> {
     // Footer / Filter Input / Message
     if let Some(ref filter_input) = state.filter_input {
         // Show filter input prompt
-        print!("Filter: {}", filter_input);
+        print!(" Filter: {}", filter_input);
         if state.use_color {
             print!("{}█{}", COLOR_ERROR, COLOR_RESET); // Show cursor
         } else {
@@ -658,15 +659,15 @@ fn render(state: &State) -> io::Result<()> {
         }
     } else if let Some(ref msg) = state.message {
         if state.use_color {
-            print!("{}{}{}", COLOR_ERROR, msg, COLOR_RESET);
+            print!(" {}{}{}", COLOR_ERROR, msg, COLOR_RESET);
         } else {
-            print!("{}", msg);
+            print!(" {}", msg);
         }
     } else {
         let marked_count = state.entries.iter().filter(|e| e.marked).count();
         let yanked_count = state.yanked.len();
         
-        print!("{}/{}", state.cursor + 1, state.entries.len());
+        print!(" {}/{}", state.cursor + 1, state.entries.len());
         
         if marked_count > 0 {
             print!(" [{}*]", marked_count);

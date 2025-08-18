@@ -615,15 +615,15 @@ fn render(state: &mut State) -> io::Result<()> {
             // Cursor gets exactly one space, others align to match
             let prefix = if i == state.cursor {
                 if entry.marked {
-                    format!("{}{} ", CURSOR_SYMBOL, YANK_SYMBOL)  // ">* "
+                    ">* "  // Use string literals instead of format!
                 } else {
-                    format!("{} ", CURSOR_SYMBOL)  // "> "
+                    "> "  // Use string literals instead of format!
                 }
             } else {
                 if entry.marked {
-                    format!(" {} ", YANK_SYMBOL)  // " * " (aligned with cursor)
+                    " * "  // Use string literals instead of format!
                 } else {
-                    "  ".to_string()  // "  " (aligned with cursor)
+                    "  "  // Use string literals instead of format!
                 }
             };
             
@@ -654,22 +654,32 @@ fn render(state: &mut State) -> io::Result<()> {
                 ""
             };
             
-            let name = format!("{}{}", entry.name, suffix);
-            let name_width = name.chars().count();
+            // Calculate name width without allocating string
+            let name_width = entry.name.chars().count() + suffix.chars().count();
             
             // Pad name to longest entry width for column alignment (like original)
             let padding_needed = state.longest_entry_width.saturating_sub(name_width);
-            let name_padding = " ".repeat(padding_needed);
             
-            let size_str = if state.show_size && !entry.is_dir {
-                format!(" {:>8}", format_size(entry.size))
-            } else if state.show_size {
-                "         ".to_string() // 9 spaces for alignment with size column
-            } else {
-                String::new()
-            };
+            // Print directly to avoid string allocations
+            print!(" {}{}{}{}", prefix, color_start, &entry.name, suffix);
             
-            println!(" {}{}{}{}{}{}", prefix, color_start, name, name_padding, color_end, size_str);
+            // Print padding spaces directly
+            for _ in 0..padding_needed {
+                print!(" ");
+            }
+            
+            print!("{}", color_end);
+            
+            // Print size if needed
+            if state.show_size {
+                if !entry.is_dir {
+                    print!(" {:>8}", format_size(entry.size));
+                } else {
+                    print!("         "); // 9 spaces for alignment with size column
+                }
+            }
+            
+            println!(); // End the line
         }
     }
     

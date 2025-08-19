@@ -2,8 +2,6 @@ pub const SHOW_HIDDEN: bool = false;
 pub const DIRS_FIRST: bool = true;
 pub const SHOW_SIZE: bool = false;
 pub const VERSION_SORT: bool = true;
-pub const CURSOR_SYMBOL: &str = ">";
-pub const YANK_SYMBOL: &str = "*";
 
 #[derive(Copy, Clone, Debug)]
 pub enum Action {
@@ -89,7 +87,7 @@ pub const KEYBINDS: &[(u8, Action)] = &[
     (21, Action::HalfPageUp),   // Ctrl-U
     (12, Action::Redraw),       // Ctrl-L
     (8, Action::ToggleHidden),  // Ctrl-H
-    // (27, Action::Quit),         // ESC - removed to prevent accidental quit
+    // (27, Action::Quit),
     (10, Action::Enter),        // Enter
     (127, Action::Back),        // Backspace
 ];
@@ -130,7 +128,7 @@ pub const COLOR_ERROR: &str = "\x1b[31m";     // Red
 
 pub const DEFAULT_PAGER: &str = "less";
 pub const DEFAULT_SHELL: &str = "sh";
-pub const DEFAULT_EDITOR: &str = "vi";
-pub const DEFAULT_TOP: &str = "top";
+pub const DEFAULT_EDITOR: &str = "nvim";
+pub const DEFAULT_TOP: &str = "htop";
 pub const DEFAULT_MEDIA_PLAYER: &str = "mpv --shuffle";
 pub const DEFAULT_MAN_COMMAND: &str = "man noice";

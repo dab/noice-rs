@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Write, Read};
+use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -271,7 +271,6 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
                     // Handle inline filtering input
                     if handle_filter_input(&mut state, keys[0])? {
                         load_directory(&mut state)?;
-                        watcher = FileWatcher::new(&state.dir).ok();
                     }
                 } else if let Some(pending) = state.pending_key {
                     // Handle two-key combos
@@ -766,42 +765,54 @@ fn get_key() -> io::Result<Option<Vec<u8>>> {
         if result <= 0 {
             return Ok(None);
         }
-    }
-    
-    match io::stdin().read(&mut buf[..1]) {
-        Ok(1) => {
-            if buf[0] == 27 { // ESC sequence
-                // Set non-blocking mode for potential arrow key detection
-                unsafe {
+        
+        // Read directly from file descriptor 0 (stdin) to avoid buffering issues
+        let n = libc::read(0, buf.as_mut_ptr() as *mut libc::c_void, 1);
+        if n != 1 {
+            return Ok(None);
+        }
+        
+        if buf[0] == 27 { // ESC sequence
+            // Check if more data is available for escape sequence
+            let mut fds: libc::fd_set = mem::zeroed();
+            libc::FD_SET(0, &mut fds);
+            
+            let mut timeout = libc::timeval {
+                tv_sec: 0,
+                tv_usec: 10000, // 10ms timeout for escape sequences
+            };
+            
+            let result = libc::select(1, &mut fds, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout);
+            if result > 0 {
+                // Try to read the next byte
+                let n = libc::read(0, buf.as_mut_ptr().add(1) as *mut libc::c_void, 1);
+                if n == 1 && buf[1] == b'[' {
+                    // This looks like an arrow key sequence, read the third byte
                     let mut fds: libc::fd_set = mem::zeroed();
                     libc::FD_SET(0, &mut fds);
                     
                     let mut timeout = libc::timeval {
                         tv_sec: 0,
-                        tv_usec: 5000, // 5ms timeout - quick check for arrow sequences
+                        tv_usec: 10000, // 10ms timeout for the third byte
                     };
                     
                     let result = libc::select(1, &mut fds, std::ptr::null_mut(), std::ptr::null_mut(), &mut timeout);
                     if result > 0 {
-                        // More data available, try to read arrow key sequence
-                        if let Ok(2) = io::stdin().read(&mut buf[1..3]) {
-                            if buf[1] == b'[' {
-                                return Ok(Some(vec![buf[0], buf[1], buf[2]]));
-                            } else {
-                                // Not an arrow key sequence, put the extra bytes back somehow
-                                // For now, just return the ESC
-                                return Ok(Some(vec![buf[0]]));
-                            }
+                        let n = libc::read(0, buf.as_mut_ptr().add(2) as *mut libc::c_void, 1);
+                        if n == 1 {
+                            // Successfully read the arrow key sequence
+                            return Ok(Some(vec![buf[0], buf[1], buf[2]]));
                         }
                     }
+                    // Failed to read third byte, return what we have
+                    return Ok(Some(vec![buf[0], buf[1]]));
                 }
-                // No additional data within timeout, treat as standalone ESC
-                Ok(Some(vec![buf[0]]))
-            } else {
-                Ok(Some(vec![buf[0]]))
             }
+            // No additional data or not an arrow sequence, treat as standalone ESC
+            return Ok(Some(vec![buf[0]]));
+        } else {
+            return Ok(Some(vec![buf[0]]));
         }
-        _ => Ok(None),
     }
 }
 

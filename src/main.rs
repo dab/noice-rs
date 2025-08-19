@@ -36,18 +36,16 @@ fn main() {
                         break;
                     }
                     _ => {
-                        eprintln!("Unknown option: -{}", ch);
+                        eprintln!("Unknown option: -{ch}");
                         print_usage();
                     }
                 }
             }
+        } else if dir.is_none() {
+            dir = Some(arg.clone());
         } else {
-            if dir.is_none() {
-                dir = Some(arg.clone());
-            } else {
-                eprintln!("Too many arguments");
-                print_usage();
-            }
+            eprintln!("Too many arguments");
+            print_usage();
         }
         i += 1;
     }
@@ -55,7 +53,7 @@ fn main() {
     let dir = dir.unwrap_or_else(|| ".".to_string());
     
     if let Err(e) = noice::run(&dir, color_mode, tilde_home, save_file) {
-        eprintln!("Error: {}", e);
+        eprintln!("Error: {e}");
         process::exit(1);
     }
 }

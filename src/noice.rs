@@ -267,7 +267,7 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
         
         match get_key()? {
             Some(keys) => {
-                if let Some(_) = state.filter_input {
+                if state.filter_input.is_some() {
                     // Handle inline filtering input
                     if handle_filter_input(&mut state, keys[0])? {
                         load_directory(&mut state)?;
@@ -275,7 +275,7 @@ fn run_browser(dir: &str, use_color: bool, tilde_home: bool, save_file: Option<S
                 } else if let Some(pending) = state.pending_key {
                     // Handle two-key combos
                     state.pending_key = None;
-                    let combo_action = handle_two_key_combo(pending, keys.get(0).copied().unwrap_or(0));
+                    let combo_action = handle_two_key_combo(pending, keys.first().copied().unwrap_or(0));
                     if let Some(action) = combo_action {
                         if handle_action(action, &mut state, keys[0])? {
                             break;
@@ -308,7 +308,7 @@ fn setup_terminal() -> io::Result<()> {
         if tcgetattr(0, &mut termios) != 0 {
             return Err(io::Error::last_os_error());
         }
-        ORIG_TERMIOS = Some(termios.clone());
+        ORIG_TERMIOS = Some(termios);
         
         termios.c_lflag &= !(ECHO | ICANON);
         termios.c_cc[VMIN] = 1;
@@ -417,13 +417,11 @@ fn version_compare(a: &str, b: &str) -> Ordering {
         for ch in s.chars() {
             if ch.is_ascii_digit() {
                 current_num.push(ch);
-            } else {
-                if !current_num.is_empty() {
-                    if let Ok(n) = current_num.parse::<u32>() {
-                        nums.push(n);
-                    }
-                    current_num.clear();
+            } else if !current_num.is_empty() {
+                if let Ok(n) = current_num.parse::<u32>() {
+                    nums.push(n);
                 }
+                current_num.clear();
             }
         }
         
@@ -469,7 +467,7 @@ fn load_directory(state: &mut State) -> io::Result<()> {
     let read_dir = match fs::read_dir(&state.dir) {
         Ok(rd) => rd,
         Err(e) => {
-            state.message = Some(format!("Error reading directory: {}", e));
+            state.message = Some(format!("Error reading directory: {e}"));
             return Ok(());
         }
     };
@@ -617,13 +615,13 @@ fn render(state: &mut State) -> io::Result<()> {
     let dir_display = state.cached_dir_display.as_ref().unwrap();
     
     if state.use_color {
-        println!(" \x1b[1m{}\x1b[0m", dir_display);
+        println!(" \x1b[1m{dir_display}\x1b[0m");
     } else {
-        println!(" {}", dir_display);
+        println!(" {dir_display}");
     }
     
     if let Some(ref filter) = state.filter {
-        println!(" Filter: {}", filter);
+        println!(" Filter: {filter}");
     }
     
     // Header bottom border (no gap, like original C implementation)
@@ -642,12 +640,10 @@ fn render(state: &mut State) -> io::Result<()> {
                 } else {
                     "> "  // Use string literals instead of format!
                 }
+            } else if entry.marked {
+                " * "  // Use string literals instead of format!
             } else {
-                if entry.marked {
-                    " * "  // Use string literals instead of format!
-                } else {
-                    "  "  // Use string literals instead of format!
-                }
+                "  "  // Use string literals instead of format!
             };
             
             let (color_start, color_end) = if state.use_color {
@@ -691,7 +687,7 @@ fn render(state: &mut State) -> io::Result<()> {
                 print!(" ");
             }
             
-            print!("{}", color_end);
+            print!("{color_end}");
             
             // Print size if needed
             if state.show_size {
@@ -714,17 +710,17 @@ fn render(state: &mut State) -> io::Result<()> {
     // Footer / Filter Input / Message
     if let Some(ref filter_input) = state.filter_input {
         // Show filter input prompt
-        print!(" Filter: {}", filter_input);
+        print!(" Filter: {filter_input}");
         if state.use_color {
-            print!("{}█{}", COLOR_ERROR, COLOR_RESET); // Show cursor
+            print!("{COLOR_ERROR}█{COLOR_RESET}"); // Show cursor
         } else {
             print!("_"); // Simple cursor
         }
     } else if let Some(ref msg) = state.message {
         if state.use_color {
-            print!(" {}{}{}", COLOR_ERROR, msg, COLOR_RESET);
+            print!(" {COLOR_ERROR}{msg}{COLOR_RESET}");
         } else {
-            print!(" {}", msg);
+            print!(" {msg}");
         }
     } else {
         // Use cached counts for better performance
@@ -733,15 +729,15 @@ fn render(state: &mut State) -> io::Result<()> {
         print!(" {}/{}", state.cursor + 1, state.entries.len());
         
         if marked_count > 0 {
-            print!(" [{}*]", marked_count);
+            print!(" [{marked_count}*]");
         }
         
         if yanked_count > 0 {
-            print!(" [{} yanked]", yanked_count);
+            print!(" [{yanked_count} yanked]");
         }
         
         if let Some(ref current_filter) = state.filter {
-            print!(" (filtered: {})", current_filter);
+            print!(" (filtered: {current_filter})");
         }
     }
     
@@ -809,9 +805,9 @@ fn get_key() -> io::Result<Option<Vec<u8>>> {
                 }
             }
             // No additional data or not an arrow sequence, treat as standalone ESC
-            return Ok(Some(vec![buf[0]]));
+            Ok(Some(vec![buf[0]]))
         } else {
-            return Ok(Some(vec![buf[0]]));
+            Ok(Some(vec![buf[0]]))
         }
     }
 }
@@ -974,7 +970,7 @@ fn handle_file_operations(action: Action, state: &mut State) -> io::Result<()> {
                 }
                 
                 if errors.is_empty() {
-                    state.message = Some(format!("Moved {} item(s)", success));
+                    state.message = Some(format!("Moved {success} item(s)"));
                     state.yanked.clear();
                 } else {
                     state.message = Some(format!("Errors: {}", errors.join(", ")));
@@ -1001,7 +997,7 @@ fn handle_file_operations(action: Action, state: &mut State) -> io::Result<()> {
                 }
                 
                 if errors.is_empty() {
-                    state.message = Some(format!("Pasted {} item(s)", success));
+                    state.message = Some(format!("Pasted {success} item(s)"));
                 } else {
                     state.message = Some(format!("Errors: {}", errors.join(", ")));
                 }
@@ -1031,7 +1027,7 @@ fn handle_file_operations(action: Action, state: &mut State) -> io::Result<()> {
                 }
                 
                 if errors.is_empty() {
-                    state.message = Some(format!("Created {} link(s)", success));
+                    state.message = Some(format!("Created {success} link(s)"));
                 } else {
                     state.message = Some(format!("Errors: {}", errors.join(", ")));
                 }
@@ -1195,7 +1191,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                             load_directory(state)?;
                         }
                         Err(e) => {
-                            state.message = Some(format!("Error: {}", e));
+                            state.message = Some(format!("Error: {e}"));
                         }
                     }
                 }
@@ -1222,7 +1218,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                         load_directory(state)?;
                     }
                     Err(e) => {
-                        state.message = Some(format!("Error: {}", e));
+                        state.message = Some(format!("Error: {e}"));
                     }
                 }
             }
@@ -1306,7 +1302,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                         state.filter = None;
                         load_directory(state)?;
                     } else {
-                        state.message = Some(format!("Directory not found: {}", path));
+                        state.message = Some(format!("Directory not found: {path}"));
                     }
                     break;
                 }
@@ -1374,7 +1370,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                         load_directory(state)?;
                     }
                     Err(e) => {
-                        state.message = Some(format!("Error: {}", e));
+                        state.message = Some(format!("Error: {e}"));
                     }
                 }
             }
@@ -1406,7 +1402,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                     state.filter = None;
                     load_directory(state)?;
                 } else {
-                    state.message = Some(format!("Directory not found: {}", dir_input));
+                    state.message = Some(format!("Directory not found: {dir_input}"));
                 }
             }
         }
@@ -1428,7 +1424,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                 load_directory(state)?;
                 
                 if let Err(e) = result {
-                    state.message = Some(format!("Error running editor: {}", e));
+                    state.message = Some(format!("Error running editor: {e}"));
                 }
             }
         }
@@ -1457,7 +1453,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
                 let _ = update_terminal_size(state)?;
                 
                 if let Err(e) = result {
-                    state.message = Some(format!("Error running media player: {}", e));
+                    state.message = Some(format!("Error running media player: {e}"));
                 }
             }
         }
@@ -1477,7 +1473,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
             let _ = update_terminal_size(state)?;
             
             if let Err(e) = result {
-                state.message = Some(format!("Error running top: {}", e));
+                state.message = Some(format!("Error running top: {e}"));
             }
         }
         
@@ -1503,7 +1499,7 @@ fn handle_action(action: Action, state: &mut State, _key: u8) -> io::Result<bool
             let _ = update_terminal_size(state)?;
             
             if let Err(e) = result {
-                state.message = Some(format!("Error running help: {}", e));
+                state.message = Some(format!("Error running help: {e}"));
             }
         }
         
@@ -1554,7 +1550,7 @@ fn open_file(path: &Path) -> io::Result<()> {
 fn simple_match(pattern: &str, text: &str) -> bool {
     if pattern.starts_with(r"\.") && pattern.ends_with("$") {
         let suffix = &pattern[2..pattern.len()-1];
-        text.ends_with(&format!(".{}", suffix))
+        text.ends_with(&format!(".{suffix}"))
     } else {
         text.contains(pattern)
     }
